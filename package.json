@@ -1,0 +1,45 @@
+{
+  "name": "uk-asylum-backend",
+  "version": "1.0.0",
+  "description": "UK Asylum Dashboard Backend - 89 Official Data Sources",
+  "main": "dist/server.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/server.js",
+    "dev": "tsx watch src/server.ts",
+    "db:migrate": "psql $DATABASE_URL -f sql/schema.sql",
+    "db:seed": "tsx scripts/seed.ts",
+    "ingest": "tsx scripts/run-ingest.ts",
+    "ingest:daily": "tsx scripts/run-ingest.ts SBA_DAILY",
+    "ingest:weekly": "tsx scripts/run-ingest.ts SBA_WEEKLY",
+    "ingest:quarterly": "tsx scripts/run-ingest.ts --tier B",
+    "insights:generate": "tsx scripts/generate-insights.ts",
+    "lint": "eslint src/**/*.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "keywords": ["asylum", "immigration", "uk", "dashboard", "statistics"],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "cheerio": "^1.0.0-rc.12",
+    "cors": "^2.8.5",
+    "express": "^4.18.2",
+    "node-cron": "^3.0.3",
+    "pg": "^8.11.3",
+    "xlsx": "^0.18.5"
+  },
+  "devDependencies": {
+    "@types/cheerio": "^0.22.35",
+    "@types/cors": "^2.8.17",
+    "@types/express": "^4.17.21",
+    "@types/node": "^20.10.6",
+    "@types/node-cron": "^3.0.11",
+    "@types/pg": "^8.10.9",
+    "eslint": "^8.56.0",
+    "tsx": "^4.7.0",
+    "typescript": "^5.3.3"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

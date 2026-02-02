@@ -1,0 +1,49 @@
+version: '3.8'
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: asylum
+      POSTGRES_PASSWORD: asylum_dev
+      POSTGRES_DB: uk_asylum_dashboard
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./sql/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U asylum -d uk_asylum_dashboard"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build: .
+    environment:
+      DATABASE_URL: postgresql://asylum:asylum_dev@db:5432/uk_asylum_dashboard
+      PORT: 3001
+      NODE_ENV: development
+      ADMIN_API_KEY: dev-api-key
+      LOG_QUERIES: "true"
+    ports:
+      - "3001:3001"
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - ./src:/app/src:ro
+    command: npm run dev
+
+  scheduler:
+    build: .
+    environment:
+      DATABASE_URL: postgresql://asylum:asylum_dev@db:5432/uk_asylum_dashboard
+      RUN_INITIAL_INGEST: "true"
+    depends_on:
+      db:
+        condition: service_healthy
+    command: npx tsx src/scheduler.ts
+
+volumes:
+  postgres_data:

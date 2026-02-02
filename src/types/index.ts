@@ -65,7 +65,7 @@ export interface LocalAuthority {
   population_year?: number;
   imd_rank?: number;
   imd_score?: number;
-  geojson?: GeoJSON.Geometry;
+  geojson?: any;
   centroid_lat?: number;
   centroid_lng?: number;
   created_at: Date;

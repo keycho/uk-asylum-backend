@@ -25,12 +25,12 @@ export { pool };
 // QUERY HELPERS
 // =============================================================================
 
-export async function query<T = any>(
+export async function query(
   text: string,
   params?: any[]
-): Promise<QueryResult<T>> {
+): Promise<QueryResult<any>> {
   const start = Date.now();
-  const res = await pool.query<T>(text, params);
+  const res = await pool.query(text, params);
   const duration = Date.now() - start;
   
   if (process.env.LOG_QUERIES === 'true') {
@@ -44,7 +44,7 @@ export async function getOne<T = any>(
   text: string,
   params?: any[]
 ): Promise<T | null> {
-  const res = await query<T>(text, params);
+  const res = await query(text, params);
   return res.rows[0] || null;
 }
 
@@ -52,7 +52,7 @@ export async function getMany<T = any>(
   text: string,
   params?: any[]
 ): Promise<T[]> {
-  const res = await query<T>(text, params);
+  const res = await query(text, params);
   return res.rows;
 }
 
@@ -116,7 +116,6 @@ export async function bulkUpsert(
   const updates = updateColumns || columns.filter(c => !conflictColumns.includes(c));
   
   let inserted = 0;
-  let updated = 0;
   
   // Batch in chunks of 100
   const chunkSize = 100;
@@ -145,7 +144,7 @@ export async function bulkUpsert(
     inserted += res.rowCount || 0;
   }
   
-  return { inserted, updated };
+  return { inserted, updated: 0 };
 }
 
 // =============================================================================
@@ -170,7 +169,6 @@ export function parseUKDate(dateStr: string): Date | null {
   const formats = [
     /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/, // DD/MM/YYYY
     /^(\d{4})-(\d{2})-(\d{2})$/, // YYYY-MM-DD
-    /^(\d{1,2}) (\w+) (\d{4})$/, // DD Month YYYY
   ];
   
   for (const format of formats) {

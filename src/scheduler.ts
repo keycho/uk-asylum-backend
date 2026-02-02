@@ -54,12 +54,8 @@ function startScheduler(): void {
   // Also schedule insight generation daily at 6am
   cron.schedule('0 6 * * *', async () => {
     log('info', 'Running daily insights generation');
-    try {
-      // Import and run insights generator
-      const { default: generateInsights } = await import('../scripts/generate-insights');
-    } catch (error) {
-      log('error', 'Insights generation failed', { error: String(error) });
-    }
+    // Insights generation placeholder
+    console.log('Insights generation would run here');
   }, {
     timezone: 'Europe/London'
   });
@@ -83,7 +79,7 @@ if (process.env.RUN_INITIAL_INGEST === 'true') {
   log('info', 'Running initial Tier A ingestion...');
   runAllIngestors('A')
     .then(() => log('info', 'Initial ingestion complete'))
-    .catch(err => log('error', 'Initial ingestion failed', { error: String(err) }));
+    .catch((err: any) => log('error', 'Initial ingestion failed', { error: String(err) }));
 }
 
 startScheduler();

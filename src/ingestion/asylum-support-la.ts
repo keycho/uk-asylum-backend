@@ -3,7 +3,7 @@
 // URL: https://www.gov.uk/government/statistical-data-sets/immigration-system-statistics-data-tables
 
 import { BaseIngestor, fetchUrl, parseODS, sheetToJson, getSheetNames } from '../lib/ingest';
-import { query, bulkUpsert, formatDateISO, log, getOne } from '../lib/db';
+import { query, formatDateISO, log, getOne } from '../lib/db';
 
 interface LASupport {
   snapshot_date: Date;

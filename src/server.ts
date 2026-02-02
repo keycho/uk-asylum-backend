@@ -1,18 +1,14 @@
 // UK Asylum Dashboard - Express API Server
-import express, { Request, Response, NextFunction } from 'express';
+import express, { Request, Response } from 'express';
 import cors from 'cors';
-import { pool, query, getOne, getMany, log } from './lib/db';
+import { getOne, getMany, log } from './lib/db';
 import { runIngestor, runAllIngestors } from './lib/ingest';
 import {
   DashboardSummary,
   AsylumSupportLA,
-  AsylumDecisionRecord,
-  SmallBoatArrivalDaily,
-  SmallBoatArrivalWeekly,
+  SpendingAnnual,
   LocalAuthority,
   AutoInsight,
-  SpendingAnnual,
-  TimeSeriesPoint,
 } from './types';
 
 const app = express();
@@ -23,7 +19,7 @@ app.use(cors());
 app.use(express.json());
 
 // Request logging
-app.use((req, res, next) => {
+app.use((req, _res, next) => {
   log('info', `${req.method} ${req.path}`, { query: req.query });
   next();
 });
@@ -32,11 +28,11 @@ app.use((req, res, next) => {
 // HEALTH & STATUS
 // =============================================================================
 
-app.get('/health', (req, res) => {
+app.get('/health', (_req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
-app.get('/api/status', async (req, res) => {
+app.get('/api/status', async (_req: Request, res: Response) => {
   try {
     const [sources, lastRun, dbSize] = await Promise.all([
       getMany('SELECT code, name, last_updated, status FROM data_sources ORDER BY last_updated DESC NULLS LAST'),
@@ -58,7 +54,7 @@ app.get('/api/status', async (req, res) => {
 // DASHBOARD SUMMARY
 // =============================================================================
 
-app.get('/api/dashboard/summary', async (req, res) => {
+app.get('/api/dashboard/summary', async (_req: Request, res: Response) => {
   try {
     // Get latest asylum support total
     const supportTotal = await getOne<{ total: number; hotel: number; snapshot_date: Date }>(`
@@ -127,7 +123,7 @@ app.get('/api/dashboard/summary', async (req, res) => {
 // =============================================================================
 
 // Get all LAs with latest support data
-app.get('/api/la', async (req, res) => {
+app.get('/api/la', async (req: Request, res: Response) => {
   try {
     const { region, sort = 'total_supported', order = 'desc', limit = 500 } = req.query;
     
@@ -168,7 +164,7 @@ app.get('/api/la', async (req, res) => {
 });
 
 // Get single LA detail with history
-app.get('/api/la/:id', async (req, res) => {
+app.get('/api/la/:id', async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
     
@@ -179,7 +175,8 @@ app.get('/api/la/:id', async (req, res) => {
     );
 
     if (!la) {
-      return res.status(404).json({ error: 'Local authority not found' });
+      res.status(404).json({ error: 'Local authority not found' });
+      return;
     }
 
     // Get current support
@@ -220,7 +217,7 @@ app.get('/api/la/:id', async (req, res) => {
 });
 
 // Get LA boundaries GeoJSON for map
-app.get('/api/la/geojson', async (req, res) => {
+app.get('/api/la/geojson', async (_req: Request, res: Response) => {
   try {
     const data = await getMany<{ ons_code: string; name: string; geojson: any; total_supported: number; per_10k: number }>(`
       SELECT 
@@ -258,7 +255,7 @@ app.get('/api/la/geojson', async (req, res) => {
 });
 
 // Get regions summary
-app.get('/api/regions', async (req, res) => {
+app.get('/api/regions', async (_req: Request, res: Response) => {
   try {
     const data = await getMany(`
       SELECT 
@@ -287,11 +284,11 @@ app.get('/api/regions', async (req, res) => {
 // =============================================================================
 
 // Get daily arrivals (last N days)
-app.get('/api/small-boats/daily', async (req, res) => {
+app.get('/api/small-boats/daily', async (req: Request, res: Response) => {
   try {
     const { days = 30 } = req.query;
     
-    const data = await getMany<SmallBoatArrivalDaily>(`
+    const data = await getMany(`
       SELECT * FROM small_boat_arrivals_daily 
       ORDER BY date DESC 
       LIMIT $1
@@ -305,7 +302,7 @@ app.get('/api/small-boats/daily', async (req, res) => {
 });
 
 // Get weekly time series
-app.get('/api/small-boats/weekly', async (req, res) => {
+app.get('/api/small-boats/weekly', async (req: Request, res: Response) => {
   try {
     const { year } = req.query;
     
@@ -317,7 +314,7 @@ app.get('/api/small-boats/weekly', async (req, res) => {
       whereClause = 'WHERE year = $1';
     }
 
-    const data = await getMany<SmallBoatArrivalWeekly>(`
+    const data = await getMany(`
       SELECT * FROM small_boat_arrivals_weekly 
       ${whereClause}
       ORDER BY week_ending DESC
@@ -331,7 +328,7 @@ app.get('/api/small-boats/weekly', async (req, res) => {
 });
 
 // Get arrivals by nationality
-app.get('/api/small-boats/nationality', async (req, res) => {
+app.get('/api/small-boats/nationality', async (req: Request, res: Response) => {
   try {
     const { year, limit = 20 } = req.query;
     
@@ -367,7 +364,7 @@ app.get('/api/small-boats/nationality', async (req, res) => {
 // =============================================================================
 
 // Get grant rates by nationality
-app.get('/api/grant-rates', async (req, res) => {
+app.get('/api/grant-rates', async (req: Request, res: Response) => {
   try {
     const { min_decisions = 50, quarter } = req.query;
     
@@ -382,7 +379,7 @@ app.get('/api/grant-rates', async (req, res) => {
       whereClause += ` AND quarter_end = (SELECT MAX(quarter_end) FROM asylum_decisions)`;
     }
 
-    const data = await getMany<AsylumDecisionRecord>(`
+    const data = await getMany(`
       SELECT * FROM asylum_decisions
       ${whereClause}
       ORDER BY grant_rate_pct DESC
@@ -396,7 +393,7 @@ app.get('/api/grant-rates', async (req, res) => {
 });
 
 // Get claims time series
-app.get('/api/claims/timeseries', async (req, res) => {
+app.get('/api/claims/timeseries', async (req: Request, res: Response) => {
   try {
     const { nationality } = req.query;
     
@@ -408,7 +405,7 @@ app.get('/api/claims/timeseries', async (req, res) => {
       whereClause = 'WHERE nationality_name = $1';
     }
 
-    const data = await getMany<TimeSeriesPoint>(`
+    const data = await getMany(`
       SELECT 
         quarter_end as date,
         ${nationality ? 'claims_total' : 'SUM(claims_total)'} as value,
@@ -427,9 +424,9 @@ app.get('/api/claims/timeseries', async (req, res) => {
 });
 
 // Get backlog time series
-app.get('/api/backlog/timeseries', async (req, res) => {
+app.get('/api/backlog/timeseries', async (_req: Request, res: Response) => {
   try {
-    const data = await getMany<TimeSeriesPoint>(`
+    const data = await getMany(`
       SELECT 
         snapshot_date as date,
         total_awaiting as value,
@@ -449,7 +446,7 @@ app.get('/api/backlog/timeseries', async (req, res) => {
 // SPENDING DATA
 // =============================================================================
 
-app.get('/api/spending', async (req, res) => {
+app.get('/api/spending', async (_req: Request, res: Response) => {
   try {
     const data = await getMany<SpendingAnnual>(`
       SELECT * FROM spending_annual
@@ -463,7 +460,7 @@ app.get('/api/spending', async (req, res) => {
   }
 });
 
-app.get('/api/spending/hotel-costs', async (req, res) => {
+app.get('/api/spending/hotel-costs', async (_req: Request, res: Response) => {
   try {
     const data = await getMany(`
       SELECT * FROM hotel_costs
@@ -482,7 +479,7 @@ app.get('/api/spending/hotel-costs', async (req, res) => {
 // DETENTION DATA
 // =============================================================================
 
-app.get('/api/detention/facilities', async (req, res) => {
+app.get('/api/detention/facilities', async (_req: Request, res: Response) => {
   try {
     const data = await getMany(`
       SELECT 
@@ -504,7 +501,7 @@ app.get('/api/detention/facilities', async (req, res) => {
   }
 });
 
-app.get('/api/detention/outcomes', async (req, res) => {
+app.get('/api/detention/outcomes', async (_req: Request, res: Response) => {
   try {
     const data = await getMany(`
       SELECT * FROM detention_outcomes
@@ -523,7 +520,7 @@ app.get('/api/detention/outcomes', async (req, res) => {
 // INSIGHTS
 // =============================================================================
 
-app.get('/api/insights', async (req, res) => {
+app.get('/api/insights', async (req: Request, res: Response) => {
   try {
     const { type, limit = 20 } = req.query;
     
@@ -553,12 +550,13 @@ app.get('/api/insights', async (req, res) => {
 // SEARCH
 // =============================================================================
 
-app.get('/api/search', async (req, res) => {
+app.get('/api/search', async (req: Request, res: Response) => {
   try {
     const { q } = req.query;
     
     if (!q || String(q).length < 2) {
-      return res.json({ las: [], nationalities: [] });
+      res.json({ las: [], nationalities: [] });
+      return;
     }
 
     const searchTerm = `%${String(q).toLowerCase()}%`;
@@ -591,14 +589,15 @@ app.get('/api/search', async (req, res) => {
 // ADMIN: MANUAL INGESTION TRIGGERS
 // =============================================================================
 
-app.post('/api/admin/ingest/:sourceCode', async (req, res) => {
+app.post('/api/admin/ingest/:sourceCode', async (req: Request, res: Response) => {
   try {
     const { sourceCode } = req.params;
     const apiKey = req.headers['x-api-key'];
     
     // Simple API key check
     if (apiKey !== process.env.ADMIN_API_KEY) {
-      return res.status(401).json({ error: 'Unauthorized' });
+      res.status(401).json({ error: 'Unauthorized' });
+      return;
     }
 
     log('info', `Manual ingest triggered for ${sourceCode}`);
@@ -614,13 +613,14 @@ app.post('/api/admin/ingest/:sourceCode', async (req, res) => {
   }
 });
 
-app.post('/api/admin/ingest-all', async (req, res) => {
+app.post('/api/admin/ingest-all', async (req: Request, res: Response) => {
   try {
     const { tier } = req.body;
     const apiKey = req.headers['x-api-key'];
     
     if (apiKey !== process.env.ADMIN_API_KEY) {
-      return res.status(401).json({ error: 'Unauthorized' });
+      res.status(401).json({ error: 'Unauthorized' });
+      return;
     }
 
     log('info', `Manual ingest-all triggered`, { tier });
@@ -640,9 +640,8 @@ app.post('/api/admin/ingest-all', async (req, res) => {
 // ERROR HANDLING
 // =============================================================================
 
-app.use((err: Error, req: Request, res: Response, next: NextFunction) => {
-  log('error', 'Unhandled error', { error: err.message, stack: err.stack });
-  res.status(500).json({ error: 'Internal server error' });
+app.use((_req: Request, res: Response) => {
+  res.status(404).json({ error: 'Not found' });
 });
 
 // =============================================================================

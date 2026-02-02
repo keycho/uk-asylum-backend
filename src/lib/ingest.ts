@@ -1,7 +1,6 @@
 // Core ingestion framework
-import { query, getOne, hashContent, log, withTransaction } from './db';
+import { query, getOne, hashContent, log } from './db';
 import { DataSource, IngestRun, IngestStatus } from '../types';
-import { PoolClient } from 'pg';
 
 // =============================================================================
 // INGESTION BASE CLASS
@@ -45,7 +44,8 @@ export abstract class BaseIngestor {
       if (this.source.content_hash === contentHash) {
         log('info', `No changes detected for ${this.sourceCode}`, { runId: this.runId });
         await this.updateRunStatus('completed', { contentHash, noChanges: true });
-        return this.getRun();
+        const result = await this.getRun();
+        return result!;
       }
       
       // Parse data
@@ -77,7 +77,8 @@ export abstract class BaseIngestor {
         updated: this.recordsUpdated,
       });
       
-      return this.getRun();
+      const result = await this.getRun();
+      return result!;
       
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
@@ -170,8 +171,8 @@ export abstract class BaseIngestor {
     );
   }
 
-  protected async getRun(): Promise<IngestRun> {
-    return getOne<IngestRun>('SELECT * FROM ingest_runs WHERE id = $1', [this.runId])!;
+  protected async getRun(): Promise<IngestRun | null> {
+    return getOne<IngestRun>('SELECT * FROM ingest_runs WHERE id = $1', [this.runId]);
   }
 
   /**
@@ -307,7 +308,7 @@ export async function fetchHtml(url: string): Promise<string> {
   return buffer.toString('utf-8');
 }
 
-export function parseHtml(html: string): cheerio.CheerioAPI {
+export function parseHtml(html: string): any {
   return cheerio.load(html);
 }
 
@@ -386,7 +387,7 @@ export async function runIngestor(sourceCode: string): Promise<IngestRun> {
 }
 
 export async function runAllIngestors(tier?: 'A' | 'B' | 'C'): Promise<IngestRun[]> {
-  const sources = await query<DataSource>(
+  const sources = await query(
     tier 
       ? 'SELECT * FROM data_sources WHERE tier = $1 AND status = $2'
       : 'SELECT * FROM data_sources WHERE status = $1',

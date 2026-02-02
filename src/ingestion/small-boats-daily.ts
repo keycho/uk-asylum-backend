@@ -2,7 +2,7 @@
 // Source: https://www.gov.uk/government/publications/migrants-detected-crossing-the-english-channel-in-small-boats
 
 import { BaseIngestor, fetchHtml, parseHtml } from '../lib/ingest';
-import { query, upsertOne, formatDateISO, parseUKDate, log } from '../lib/db';
+import { upsertOne, formatDateISO, parseUKDate, log } from '../lib/db';
 
 interface DailyArrival {
   date: Date;
@@ -30,10 +30,10 @@ export class SmallBoatDailyIngestor extends BaseIngestor {
     // Structure varies but usually contains date and number of arrivals
     
     // Try to find the main content table
-    $('table').each((_, table) => {
+    $('table').each((_: number, table: any) => {
       const rows = $(table).find('tr');
       
-      rows.each((rowIndex, row) => {
+      rows.each((rowIndex: number, row: any) => {
         if (rowIndex === 0) return; // Skip header
         
         const cells = $(row).find('td');

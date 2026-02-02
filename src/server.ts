@@ -1546,38 +1546,41 @@ const investigations = [
   {
     id: 'contractor-network',
     title: 'Asylum Accommodation Contractor Network',
-    subtitle: 'Tracking £3.5B+ in contracts to Serco, Mears, Clearsprings, Mitie',
+    subtitle: 'Tracking £4B+ in AASC contracts to Serco, Mears, Clearsprings',
     status: 'active',
     category: 'contracts',
-    headline_stat: '£3.5B+',
+    headline_stat: '£4B+',
     headline_label: 'total contracts',
-    summary: 'Four companies dominate UK asylum accommodation: Serco, Mears Group, Clearsprings Ready Homes, and Mitie. Despite documented failures, abuse incidents, and NAO criticism, contracts continue to be renewed.',
+    summary: 'Three companies dominate UK asylum accommodation through AASC contracts awarded January 2019. Total value: £4 billion over 10 years. Despite Brook House abuse scandal, Glasgow evictions, and NAO criticism, only £4M (<1%) deducted for underperformance since 2019.',
     key_findings: [
-      'Serco contract renewed despite Brook House abuse scandal',
-      'Hotel costs 3x higher than dispersed accommodation',
-      'No competitive tendering for emergency hotel contracts',
-      '£252K in political donations from contractor directors since 2019',
+      'Total AASC contract value: £4 billion over 10 years (2019-2029)',
+      'Serco: £1.9B for NW England + Midlands & East - largest contract in company history',
+      'Mears: £1.2B for Scotland, NI, North East, Yorkshire',
+      'Clearsprings: £900M for South, Wales + all hotels + large sites',
+      'Brook House Inquiry found "institutional violence" - contract renewed anyway',
+      'Only £4M deducted for underperformance since 2019 (<1% of contract)',
+      'Rupert Soames (Serco CEO 2014-2023): Churchill\'s grandson, brother of Tory MP',
+      'Hotel costs reached £3B in 2022-23 (75% of 10-year budget in 1 year)'
     ],
     entities: [
-      { id: 'home-office', name: 'Home Office', type: 'government', role: 'Contract issuer', money_paid: 3500000000 },
-      { id: 'serco', name: 'Serco Group PLC', type: 'contractor', role: 'AASC Midlands/East/Wales', money_received: 1200000000, political_donations: 85000, flagged: true, companies_house_id: '02048608' },
-      { id: 'mears', name: 'Mears Group PLC', type: 'contractor', role: 'AASC Scotland/NI/North East', money_received: 1000000000, political_donations: 42000, companies_house_id: '03187205' },
-      { id: 'clearsprings', name: 'Clearsprings Ready Homes', type: 'contractor', role: 'AASC South/London/Hotels', money_received: 800000000, companies_house_id: '05765535' },
-      { id: 'mitie', name: 'Mitie Group PLC', type: 'contractor', role: 'Immigration Detention', money_received: 450000000, political_donations: 125000, companies_house_id: '02238803' },
+      { id: 'home-office', name: 'Home Office', type: 'government', role: 'Contract issuer', money_paid: 4000000000 },
+      { id: 'serco', name: 'Serco Group PLC', type: 'contractor', role: 'AASC NW + Midlands & East', money_received: 1900000000, companies_house_id: '02048608', contract_ref: 'cb6aa97e-a5a8-4e5e-9368-268d4923d68a', flagged: true, notes: 'Largest contract in company history. Brook House abuse.' },
+      { id: 'mears', name: 'Mears Group PLC', type: 'contractor', role: 'AASC Scotland/NI/NE/Yorkshire', money_received: 1200000000, companies_house_id: '03187205', operating_margin: '4.6%' },
+      { id: 'clearsprings', name: 'Clearsprings Ready Homes Ltd', type: 'contractor', role: 'AASC South/Wales + Hotels + Large Sites', money_received: 900000000, companies_house_id: '05765535', operating_margin: '6.7%', notes: 'Also manages Napier, Wethersfield' },
+      { id: 'rupert-soames', name: 'Rupert Soames OBE', type: 'individual', role: 'Serco CEO (2014-2023)', flagged: true, notes: 'Churchill\'s grandson. Brother of Tory MP Nicholas Soames. Pay: £4.5M.' },
     ],
     money_flows: [
-      { from: 'home-office', to: 'serco', amount: 1200000000, type: 'contract' },
-      { from: 'home-office', to: 'mears', amount: 1000000000, type: 'contract' },
-      { from: 'home-office', to: 'clearsprings', amount: 800000000, type: 'contract' },
-      { from: 'home-office', to: 'mitie', amount: 450000000, type: 'contract' },
-      { from: 'serco', to: 'conservative-party', amount: 85000, type: 'donation' },
-      { from: 'mitie', to: 'conservative-party', amount: 125000, type: 'donation' },
+      { from: 'home-office', to: 'serco', amount: 1900000000, type: 'contract', description: 'AASC NW + MEE 2019-2029' },
+      { from: 'home-office', to: 'mears', amount: 1200000000, type: 'contract', description: 'AASC Scotland/NI/NE/Yorkshire 2019-2029' },
+      { from: 'home-office', to: 'clearsprings', amount: 900000000, type: 'contract', description: 'AASC South/Wales + Hotels 2019-2029' },
     ],
     documents: [
-      { title: 'NAO: Asylum Accommodation', type: 'nao_report', url: 'https://www.nao.org.uk/reports/asylum-accommodation-and-support/', date: '2024-02-01' },
-      { title: 'Brook House Inquiry', type: 'court', url: 'https://brookhouseinquiry.org.uk/', date: '2023-09-19' },
+      { title: 'GOV.UK: AASC Award', type: 'government', url: 'https://www.gov.uk/government/news/new-asylum-accommodation-contracts-awarded', date: '2019-01-08' },
+      { title: 'Serco MEE Contract', type: 'contract', url: 'https://www.contractsfinder.service.gov.uk/Notice/cb6aa97e-a5a8-4e5e-9368-268d4923d68a', date: '2019-01-08', value: '£1,030,000,000' },
+      { title: 'NAO: Asylum Accommodation Contracts', type: 'nao_report', url: 'https://www.nao.org.uk/wp-content/uploads/2025/05/home-offices-asylum-accommodation-contracts.pdf', date: '2025-05-01' },
+      { title: 'Brook House Inquiry', type: 'inquiry', url: 'https://brookhouseinquiry.org.uk/', date: '2023-09-19' },
     ],
-    last_updated: '2025-11-27'
+    last_updated: '2025-05-01'
   },
   {
     id: 'rwanda-deal',
@@ -1647,81 +1650,143 @@ const investigations = [
     headline_label: 'deaths since 2020',
     summary: 'At least 18 people have died in immigration detention since 2020. Contractors continue to receive renewed contracts despite systemic failures.',
     key_findings: [
-      '18 deaths in immigration detention since 2020',
-      'Multiple inquests found healthcare failures',
-      'Serco, Mitie operate facilities where deaths occurred',
-      'Brook House Inquiry found "institutional violence"'
+      '50+ deaths in immigration detention since 2000',
+      '15 deaths in IRCs since 2017, 16 in prisons',
+      'Harmondsworth IRC: "worst conditions ever documented" (HMIP 2024)',
+      '48% of Harmondsworth detainees felt suicidal',
+      'Brook House Inquiry found "institutional violence"',
+      '£11.8M paid in compensation for 838 unlawful detention cases (2023-24)'
     ],
     entities: [
-      { id: 'mitie-deaths', name: 'Mitie', type: 'contractor', flagged: true },
-      { id: 'serco-deaths', name: 'Serco', type: 'contractor', flagged: true },
+      { id: 'mitie-deaths', name: 'Mitie Care & Custody', type: 'contractor', flagged: true, notes: 'Operates Harmondsworth, Colnbrook, Dungavel' },
+      { id: 'serco-deaths', name: 'Serco', type: 'contractor', flagged: true, notes: 'Operates Brook House, Yarl\'s Wood, Tinsley House, Derwentside' },
+      { id: 'harmondsworth', name: 'Harmondsworth IRC', type: 'facility', operator: 'Mitie', notes: '"Worst conditions ever documented" - HMIP 2024' },
+      { id: 'brook-house', name: 'Brook House IRC', type: 'facility', operator: 'Serco', notes: 'Subject of public inquiry' },
     ],
-    money_flows: [],
+    money_flows: [
+      { from: 'home-office', to: 'compensation', amount: 11800000, type: 'settlement', description: 'Unlawful detention compensation 2023-24' },
+    ],
     documents: [
-      { title: 'Brook House Inquiry', type: 'court', url: 'https://brookhouseinquiry.org.uk/', date: '2023-09-19' },
+      { title: 'Brook House Inquiry', type: 'inquiry', url: 'https://brookhouseinquiry.org.uk/', date: '2023-09-19' },
+      { title: 'INQUEST Deaths Data', type: 'ngo', url: 'https://www.inquest.org.uk/deaths-of-immigration-detainees', date: '2024-01-02' },
+      { title: 'HMIP Harmondsworth Report', type: 'inspection', url: 'https://www.justiceinspectorates.gov.uk/hmiprisons/', date: '2024-07-09' },
     ],
-    last_updated: '2025-11-27'
+    last_updated: '2025-02-06'
   },
   {
     id: 'bibby-stockholm',
     title: 'Bibby Stockholm Barge',
     subtitle: '£40M+ on controversial accommodation barge',
-    status: 'active',
+    status: 'documented',
     category: 'spending',
     headline_stat: '£40M+',
     headline_label: 'total cost',
-    summary: 'The Bibby Stockholm barge cost over £40M with Legionella contamination, safety concerns, and one death on board.',
+    summary: 'The Bibby Stockholm barge cost over £40M with Legionella contamination, safety concerns, and one death on board. Contract ended January 2025.',
     key_findings: [
       'Capacity 506, often only 50% occupied',
-      'Legionella found Aug 2023 - evacuated for weeks',
-      'One death on board (Dec 2023)',
-      'Cost per person higher than hotels'
+      'Legionella found Aug 2023 - evacuated 4 days after opening',
+      'Leonard Farruku (Albanian) died in cabin Dec 2023',
+      'Dorset Fire Brigade raised evacuation concerns',
+      'Cost per person higher than hotels',
+      'Contract ended January 2025'
     ],
     entities: [
-      { id: 'bibby-marine', name: 'Bibby Marine', type: 'company', money_received: 22000000 },
-      { id: 'portland-port', name: 'Portland Port', type: 'company', money_received: 5000000 },
+      { id: 'bibby-marine', name: 'Bibby Marine Ltd', type: 'company', money_received: 22000000 },
+      { id: 'portland-port', name: 'Portland Port Ltd', type: 'company', money_received: 5000000 },
+      { id: 'leonard-farruku', name: 'Leonard Farruku', type: 'individual', role: 'Victim', notes: 'Albanian man, died Dec 2023' },
     ],
     money_flows: [
       { from: 'home-office', to: 'bibby-marine', amount: 22000000, type: 'contract' },
       { from: 'home-office', to: 'portland-port', amount: 5000000, type: 'contract' },
     ],
-    documents: [],
-    last_updated: '2025-11-27'
+    documents: [
+      { title: 'HMIP Bibby Stockholm', type: 'inspection', url: 'https://www.justiceinspectorates.gov.uk/hmiprisons/', date: '2024-03-01' },
+    ],
+    last_updated: '2025-01-01'
+  },
+  {
+    id: 'manston-crisis',
+    title: 'Manston Processing Centre Crisis',
+    subtitle: '4,000+ detained illegally, diphtheria outbreak, 1 death',
+    status: 'active',
+    category: 'conditions',
+    headline_stat: '18,000',
+    headline_label: 'unlawfully detained',
+    summary: 'In autumn 2022, Manston held 4,000+ people despite capacity of 1,600. Designed for 24-hour detention, some held for 33 days. Diphtheria outbreak (50+ cases), scabies, MRSA. One death. Public inquiry ordered.',
+    key_findings: [
+      'Capacity: 1,600. Peak population: 4,000+',
+      'Legal limit: 24 hours. Actual: up to 33 days',
+      '18,000 of 29,000 processed unlawfully detained beyond 24 hours',
+      '50+ diphtheria cases, plus scabies and MRSA',
+      'Hussein Haseeb Ahmed (31, Iraqi) died from diphtheria Nov 2022',
+      'Migrants slept on dirty floors in wedding marquees',
+      'Chief inspector left "speechless" by conditions',
+      '250+ former detainees planning to sue',
+      '£521M 6-year contract advertised Oct 2024'
+    ],
+    entities: [
+      { id: 'manston-facility', name: 'Manston Processing Centre', type: 'facility', location: 'Kent', capacity: 1600, peak: 4000 },
+      { id: 'suella-braverman-manston', name: 'Suella Braverman', type: 'politician', role: 'Home Secretary during crisis', flagged: true, notes: 'Received warnings 3 weeks before crisis' },
+      { id: 'hussein-ahmed', name: 'Hussein Haseeb Ahmed', type: 'individual', role: 'Victim - diphtheria death', notes: 'Iraqi, 31. Arrived 12 Nov, died 19 Nov 2022' },
+      { id: 'david-neal', name: 'David Neal', type: 'individual', role: 'Chief Inspector of Borders', notes: 'Described conditions as "pretty wretched". Later sacked.' },
+    ],
+    money_flows: [
+      { from: 'home-office', to: 'manston-operations', amount: 700000000, type: 'contract', description: '£700M earmarked Dec 2023' },
+      { from: 'home-office', to: 'future-contract', amount: 521000000, type: 'contract', description: '£521M 6-year contract advertised Oct 2024' },
+    ],
+    documents: [
+      { title: 'HMIP Manston Inspection', type: 'inspection', url: 'https://www.justiceinspectorates.gov.uk/hmiprisons/', date: '2022-11-01' },
+      { title: 'Wikipedia: Manston', type: 'reference', url: 'https://en.wikipedia.org/wiki/Manston_arrivals_and_processing_centre' },
+    ],
+    last_updated: '2025-04-10'
   }
 ];
 
 const analysisDashboard = {
   headline_stats: {
-    documented_spending: 4700000000,
-    documented_spending_formatted: '£4.7B',
-    investigations_active: 5,
-    entities_tracked: 47,
-    contracts_analyzed: 156,
-    political_donations_flagged: 252000,
-    political_donations_formatted: '£252K',
+    documented_spending: 6000000000,
+    documented_spending_formatted: '£6B+',
+    investigations_active: 6,
+    entities_tracked: 58,
+    deaths_documented: 52,
+    unlawful_detentions: 18000,
+    compensation_paid: 11800000,
+    compensation_paid_formatted: '£11.8M',
     policy_failures_cost: 2130000000,
     policy_failures_cost_formatted: '£2.13B'
   },
   top_contractors: [
-    { name: 'Serco', total_value: 1200000000, political_donations: 85000, issues: ['Brook House abuse', 'Contract renewed despite failures'] },
-    { name: 'Mears', total_value: 1000000000, political_donations: 42000, issues: ['Glasgow housing conditions'] },
-    { name: 'Clearsprings', total_value: 800000000, political_donations: 0, issues: ['Hotel cost markup', 'No competitive tender'] },
-    { name: 'Mitie', total_value: 450000000, political_donations: 125000, issues: ['Detention deaths', 'Healthcare failures'] },
+    { name: 'Serco Group PLC', companies_house: '02048608', total_value: 1900000000, issues: ['Brook House abuse', 'Glasgow evictions', 'Contract renewed despite failures'], ircs: ['Brook House', 'Tinsley House', "Yarl's Wood", 'Derwentside'] },
+    { name: 'Mears Group PLC', companies_house: '03187205', total_value: 1200000000, issues: ['Glasgow housing conditions'], regions: ['Scotland', 'NI', 'North East'] },
+    { name: 'Clearsprings Ready Homes', companies_house: '05765535', total_value: 900000000, issues: ['Hotel cost markup', 'No competitive tender'], manages: ['Napier Barracks', 'Wethersfield'] },
+    { name: 'Mitie Care & Custody', companies_house: '02238803', total_value: 450000000, issues: ['Detention deaths', 'Harmondsworth conditions'], ircs: ['Harmondsworth', 'Colnbrook', 'Dungavel'] },
   ],
   policy_failures: [
-    { name: 'Rwanda Scheme', cost: 290000000, cost_formatted: '£290M', outcome: '0 deportations', status: 'Scrapped' },
+    { name: 'Rwanda Scheme', cost: 290000000, cost_formatted: '£290M', outcome: '0 deportations', status: 'Scrapped Jan 2025' },
     { name: 'Hotel Premium', cost: 1800000000, cost_formatted: '£1.8B/yr', outcome: '3x dispersed cost', status: 'Ongoing' },
-    { name: 'Bibby Stockholm', cost: 40000000, cost_formatted: '£40M', outcome: '1 death, safety failures', status: 'Ongoing' },
+    { name: 'Bibby Stockholm', cost: 40000000, cost_formatted: '£40M', outcome: '1 death, Legionella', status: 'Ended Jan 2025' },
+    { name: 'Manston Crisis', cost: 0, cost_formatted: 'TBD', outcome: '1 death, 50+ infections, 18k unlawfully detained', status: 'Inquiry ordered' },
   ],
+  deaths_summary: {
+    total_since_2000: 52,
+    irc_deaths_since_2017: 15,
+    prison_deaths_since_2000: 16,
+    manston_death: 1,
+    bibby_death: 1,
+    named_victims: ['Hussein Haseeb Ahmed (Manston)', 'Leonard Farruku (Bibby)', 'Robertas Grabys', 'Sergey Barnuyck', 'Bereket Yohannes', 'Alois Dvorzac', 'Tarek Chowdhury']
+  },
   data_sources: [
-    { name: 'Contracts Finder', url: 'https://www.contractsfinder.service.gov.uk/', status: 'active' },
-    { name: 'Companies House', url: 'https://find-and-update.company-information.service.gov.uk/', status: 'active' },
-    { name: 'Electoral Commission', url: 'https://search.electoralcommission.org.uk/', status: 'active' },
-    { name: 'NAO Reports', url: 'https://www.nao.org.uk/', status: 'manual' },
-    { name: 'Home Office Transparency', url: 'https://www.gov.uk/government/collections/home-office-spending', status: 'active' },
-    { name: 'WhatDoTheyKnow (FOIs)', url: 'https://www.whatdotheyknow.com/', status: 'manual' },
+    { name: 'Contracts Finder', url: 'https://www.contractsfinder.service.gov.uk/', type: 'api', status: 'active' },
+    { name: 'Companies House', url: 'https://find-and-update.company-information.service.gov.uk/', type: 'api', status: 'active' },
+    { name: 'Electoral Commission', url: 'https://search.electoralcommission.org.uk/', type: 'searchable', status: 'active' },
+    { name: 'NAO Reports', url: 'https://www.nao.org.uk/', type: 'manual', status: 'active' },
+    { name: 'Home Office Statistics', url: 'https://www.gov.uk/government/collections/immigration-statistics-quarterly-release', type: 'quarterly', status: 'active' },
+    { name: 'HMIP Inspections', url: 'https://www.justiceinspectorates.gov.uk/hmiprisons/', type: 'manual', status: 'active' },
+    { name: 'INQUEST (Deaths)', url: 'https://www.inquest.org.uk/', type: 'manual', status: 'active' },
+    { name: 'Brook House Inquiry', url: 'https://brookhouseinquiry.org.uk/', type: 'completed', status: 'archived' },
+    { name: 'WhatDoTheyKnow (FOIs)', url: 'https://www.whatdotheyknow.com/', type: 'searchable', status: 'active' },
   ],
-  last_updated: '2025-11-27'
+  last_updated: '2025-02-02'
 };
 
 // Analysis dashboard summary

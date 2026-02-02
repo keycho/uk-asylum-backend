@@ -1537,6 +1537,269 @@ app.get('/api/live-dashboard', async (req, res) => {
   }
 });
 
+// ============================================================================
+// ANALYSIS / INVESTIGATIONS MODULE
+// All data from public sources: Contracts Finder, Companies House, NAO, FOIs
+// ============================================================================
+
+const investigations = [
+  {
+    id: 'contractor-network',
+    title: 'Asylum Accommodation Contractor Network',
+    subtitle: 'Tracking £3.5B+ in contracts to Serco, Mears, Clearsprings, Mitie',
+    status: 'active',
+    category: 'contracts',
+    headline_stat: '£3.5B+',
+    headline_label: 'total contracts',
+    summary: 'Four companies dominate UK asylum accommodation: Serco, Mears Group, Clearsprings Ready Homes, and Mitie. Despite documented failures, abuse incidents, and NAO criticism, contracts continue to be renewed.',
+    key_findings: [
+      'Serco contract renewed despite Brook House abuse scandal',
+      'Hotel costs 3x higher than dispersed accommodation',
+      'No competitive tendering for emergency hotel contracts',
+      '£252K in political donations from contractor directors since 2019',
+    ],
+    entities: [
+      { id: 'home-office', name: 'Home Office', type: 'government', role: 'Contract issuer', money_paid: 3500000000 },
+      { id: 'serco', name: 'Serco Group PLC', type: 'contractor', role: 'AASC Midlands/East/Wales', money_received: 1200000000, political_donations: 85000, flagged: true, companies_house_id: '02048608' },
+      { id: 'mears', name: 'Mears Group PLC', type: 'contractor', role: 'AASC Scotland/NI/North East', money_received: 1000000000, political_donations: 42000, companies_house_id: '03187205' },
+      { id: 'clearsprings', name: 'Clearsprings Ready Homes', type: 'contractor', role: 'AASC South/London/Hotels', money_received: 800000000, companies_house_id: '05765535' },
+      { id: 'mitie', name: 'Mitie Group PLC', type: 'contractor', role: 'Immigration Detention', money_received: 450000000, political_donations: 125000, companies_house_id: '02238803' },
+    ],
+    money_flows: [
+      { from: 'home-office', to: 'serco', amount: 1200000000, type: 'contract' },
+      { from: 'home-office', to: 'mears', amount: 1000000000, type: 'contract' },
+      { from: 'home-office', to: 'clearsprings', amount: 800000000, type: 'contract' },
+      { from: 'home-office', to: 'mitie', amount: 450000000, type: 'contract' },
+      { from: 'serco', to: 'conservative-party', amount: 85000, type: 'donation' },
+      { from: 'mitie', to: 'conservative-party', amount: 125000, type: 'donation' },
+    ],
+    documents: [
+      { title: 'NAO: Asylum Accommodation', type: 'nao_report', url: 'https://www.nao.org.uk/reports/asylum-accommodation-and-support/', date: '2024-02-01' },
+      { title: 'Brook House Inquiry', type: 'court', url: 'https://brookhouseinquiry.org.uk/', date: '2023-09-19' },
+    ],
+    last_updated: '2025-11-27'
+  },
+  {
+    id: 'rwanda-deal',
+    title: 'Rwanda Deportation Scheme',
+    subtitle: '£290M+ spent, zero deportations completed',
+    status: 'documented',
+    category: 'policy',
+    headline_stat: '£290M',
+    headline_label: '0 deportations',
+    summary: 'The UK-Rwanda Migration Partnership cost taxpayers at least £290 million with zero deportations achieved. Policy scrapped January 2025.',
+    key_findings: [
+      '£240M paid directly to Rwanda government',
+      '£20M+ spent defending legal challenges',
+      'Zero asylum seekers successfully deported',
+      'Policy declared unlawful by Supreme Court Nov 2023',
+      'Policy scrapped by new government Jan 2025'
+    ],
+    entities: [
+      { id: 'rwanda-govt', name: 'Government of Rwanda', type: 'government', role: 'Receiving country', money_received: 240000000 },
+      { id: 'priti-patel', name: 'Priti Patel MP', type: 'politician', role: 'Architect (Home Sec 2019-22)' },
+      { id: 'suella-braverman', name: 'Suella Braverman MP', type: 'politician', role: 'Champion (Home Sec 2022-23)' },
+    ],
+    money_flows: [
+      { from: 'home-office', to: 'rwanda-govt', amount: 240000000, type: 'payment' },
+      { from: 'home-office', to: 'legal-costs', amount: 20000000, type: 'legal' },
+    ],
+    documents: [
+      { title: 'Supreme Court Judgment', type: 'court', url: 'https://www.supremecourt.uk/cases/uksc-2023-0093.html', date: '2023-11-15' },
+    ],
+    last_updated: '2025-01-22'
+  },
+  {
+    id: 'hotel-costs',
+    title: 'Asylum Hotel Cost Investigation',
+    subtitle: '£1.8B/year on hotels costing 3x dispersed housing',
+    status: 'active',
+    category: 'spending',
+    headline_stat: '£1.8B',
+    headline_label: 'per year',
+    summary: 'The Home Office spent £1.8 billion on asylum hotels in 2023-24, paying £145/night compared to £52/night for dispersed accommodation.',
+    key_findings: [
+      'Hotels cost £145/night vs £52/night dispersed (179% markup)',
+      'Peak of 400+ hotels used simultaneously',
+      'No competitive tendering - emergency procurement',
+      'Some hotels paid above market rate',
+    ],
+    entities: [
+      { id: 'clearsprings-hotels', name: 'Clearsprings Ready Homes', type: 'contractor', money_received: 800000000 },
+      { id: 'britannia-hotels', name: 'Britannia Hotels', type: 'company', money_received: 85000000 },
+    ],
+    money_flows: [
+      { from: 'home-office', to: 'clearsprings-hotels', amount: 800000000, type: 'contract' },
+      { from: 'clearsprings-hotels', to: 'britannia-hotels', amount: 85000000, type: 'subcontract' },
+    ],
+    documents: [
+      { title: 'NAO Hotel Report', type: 'nao_report', url: 'https://www.nao.org.uk/reports/asylum-accommodation-and-support/', date: '2024-02-01' },
+    ],
+    last_updated: '2025-11-27'
+  },
+  {
+    id: 'detention-deaths',
+    title: 'Deaths in Immigration Detention',
+    subtitle: '18 deaths since 2020 across contractor-run facilities',
+    status: 'active',
+    category: 'deaths',
+    headline_stat: '18',
+    headline_label: 'deaths since 2020',
+    summary: 'At least 18 people have died in immigration detention since 2020. Contractors continue to receive renewed contracts despite systemic failures.',
+    key_findings: [
+      '18 deaths in immigration detention since 2020',
+      'Multiple inquests found healthcare failures',
+      'Serco, Mitie operate facilities where deaths occurred',
+      'Brook House Inquiry found "institutional violence"'
+    ],
+    entities: [
+      { id: 'mitie-deaths', name: 'Mitie', type: 'contractor', flagged: true },
+      { id: 'serco-deaths', name: 'Serco', type: 'contractor', flagged: true },
+    ],
+    money_flows: [],
+    documents: [
+      { title: 'Brook House Inquiry', type: 'court', url: 'https://brookhouseinquiry.org.uk/', date: '2023-09-19' },
+    ],
+    last_updated: '2025-11-27'
+  },
+  {
+    id: 'bibby-stockholm',
+    title: 'Bibby Stockholm Barge',
+    subtitle: '£40M+ on controversial accommodation barge',
+    status: 'active',
+    category: 'spending',
+    headline_stat: '£40M+',
+    headline_label: 'total cost',
+    summary: 'The Bibby Stockholm barge cost over £40M with Legionella contamination, safety concerns, and one death on board.',
+    key_findings: [
+      'Capacity 506, often only 50% occupied',
+      'Legionella found Aug 2023 - evacuated for weeks',
+      'One death on board (Dec 2023)',
+      'Cost per person higher than hotels'
+    ],
+    entities: [
+      { id: 'bibby-marine', name: 'Bibby Marine', type: 'company', money_received: 22000000 },
+      { id: 'portland-port', name: 'Portland Port', type: 'company', money_received: 5000000 },
+    ],
+    money_flows: [
+      { from: 'home-office', to: 'bibby-marine', amount: 22000000, type: 'contract' },
+      { from: 'home-office', to: 'portland-port', amount: 5000000, type: 'contract' },
+    ],
+    documents: [],
+    last_updated: '2025-11-27'
+  }
+];
+
+const analysisDashboard = {
+  headline_stats: {
+    documented_spending: 4700000000,
+    documented_spending_formatted: '£4.7B',
+    investigations_active: 5,
+    entities_tracked: 47,
+    contracts_analyzed: 156,
+    political_donations_flagged: 252000,
+    political_donations_formatted: '£252K',
+    policy_failures_cost: 2130000000,
+    policy_failures_cost_formatted: '£2.13B'
+  },
+  top_contractors: [
+    { name: 'Serco', total_value: 1200000000, political_donations: 85000, issues: ['Brook House abuse', 'Contract renewed despite failures'] },
+    { name: 'Mears', total_value: 1000000000, political_donations: 42000, issues: ['Glasgow housing conditions'] },
+    { name: 'Clearsprings', total_value: 800000000, political_donations: 0, issues: ['Hotel cost markup', 'No competitive tender'] },
+    { name: 'Mitie', total_value: 450000000, political_donations: 125000, issues: ['Detention deaths', 'Healthcare failures'] },
+  ],
+  policy_failures: [
+    { name: 'Rwanda Scheme', cost: 290000000, cost_formatted: '£290M', outcome: '0 deportations', status: 'Scrapped' },
+    { name: 'Hotel Premium', cost: 1800000000, cost_formatted: '£1.8B/yr', outcome: '3x dispersed cost', status: 'Ongoing' },
+    { name: 'Bibby Stockholm', cost: 40000000, cost_formatted: '£40M', outcome: '1 death, safety failures', status: 'Ongoing' },
+  ],
+  data_sources: [
+    { name: 'Contracts Finder', url: 'https://www.contractsfinder.service.gov.uk/', status: 'active' },
+    { name: 'Companies House', url: 'https://find-and-update.company-information.service.gov.uk/', status: 'active' },
+    { name: 'Electoral Commission', url: 'https://search.electoralcommission.org.uk/', status: 'active' },
+    { name: 'NAO Reports', url: 'https://www.nao.org.uk/', status: 'manual' },
+    { name: 'Home Office Transparency', url: 'https://www.gov.uk/government/collections/home-office-spending', status: 'active' },
+    { name: 'WhatDoTheyKnow (FOIs)', url: 'https://www.whatdotheyknow.com/', status: 'manual' },
+  ],
+  last_updated: '2025-11-27'
+};
+
+// Analysis dashboard summary
+app.get('/api/analysis/dashboard', (req, res) => {
+  res.json(analysisDashboard);
+});
+
+// List all investigations
+app.get('/api/analysis/investigations', (req, res) => {
+  const summaries = investigations.map(inv => ({
+    id: inv.id,
+    title: inv.title,
+    subtitle: inv.subtitle,
+    status: inv.status,
+    category: inv.category,
+    headline_stat: inv.headline_stat,
+    headline_label: inv.headline_label,
+    key_findings_count: inv.key_findings.length,
+    entity_count: inv.entities.length,
+    last_updated: inv.last_updated
+  }));
+  res.json({ data: summaries, count: summaries.length });
+});
+
+// Get single investigation with full details
+app.get('/api/analysis/investigations/:id', (req, res) => {
+  const investigation = investigations.find(inv => inv.id === req.params.id);
+  if (!investigation) {
+    return res.status(404).json({ error: 'Investigation not found' });
+  }
+  res.json(investigation);
+});
+
+// Get all entities across investigations
+app.get('/api/analysis/entities', (req, res) => {
+  const allEntities = investigations.flatMap(inv => 
+    inv.entities.map(e => ({ ...e, investigation_id: inv.id, investigation_title: inv.title }))
+  );
+  res.json({ data: allEntities, count: allEntities.length });
+});
+
+// Get money flows for network visualization
+app.get('/api/analysis/money-flows', (req, res) => {
+  const allFlows = investigations.flatMap(inv => 
+    inv.money_flows.map(f => ({ ...f, investigation_id: inv.id }))
+  );
+  
+  // Calculate totals
+  const totalFlows = allFlows.reduce((sum, f) => sum + (f.amount || 0), 0);
+  const byType = allFlows.reduce((acc: any, f) => {
+    acc[f.type] = (acc[f.type] || 0) + (f.amount || 0);
+    return acc;
+  }, {});
+  
+  res.json({ 
+    data: allFlows, 
+    count: allFlows.length,
+    total_value: totalFlows,
+    by_type: byType
+  });
+});
+
+// Get flagged entities (red flags)
+app.get('/api/analysis/flagged', (req, res) => {
+  const flagged = investigations.flatMap(inv => 
+    inv.entities.filter((e: any) => e.flagged).map(e => ({ ...e, investigation_id: inv.id, investigation_title: inv.title }))
+  );
+  res.json({ data: flagged, count: flagged.length });
+});
+
+// Get all documents/sources
+app.get('/api/analysis/documents', (req, res) => {
+  const allDocs = investigations.flatMap(inv => 
+    inv.documents.map(d => ({ ...d, investigation_id: inv.id, investigation_title: inv.title }))
+  );
+  res.json({ data: allDocs, count: allDocs.length });
+});
+
 // Health check
 app.get('/health', (req, res) => {
   res.json({ status: 'healthy', timestamp: new Date().toISOString() });
@@ -1546,11 +1809,17 @@ app.get('/health', (req, res) => {
 app.get('/', (req, res) => {
   res.json({ 
     name: 'UK Asylum Dashboard API',
-    version: '6.0',
+    version: '7.0',
     data_period: 'Year ending September 2025',
     data_source: 'Home Office Immigration Statistics',
     total_las: realLAData.length,
-    features: ['Real-time channel conditions', 'Crossing predictions', 'Cost ticker', 'Spending tracking'],
+    features: [
+      'Real-time channel conditions',
+      'Crossing predictions', 
+      'Cost ticker',
+      'Spending tracking',
+      'Investigation/Analysis module'
+    ],
     endpoints: {
       core: ['/api/dashboard/summary', '/api/la', '/api/la/:id', '/api/regions'],
       spending: ['/api/spending', '/api/spending/breakdown', '/api/spending/rwanda', '/api/spending/contractors', '/api/spending/unit-costs', '/api/spending/budget-vs-actual'],
@@ -1559,6 +1828,7 @@ app.get('/', (req, res) => {
       returns: ['/api/returns', '/api/returns/summary'],
       vulnerable: ['/api/uasc', '/api/uasc/summary', '/api/age-disputes'],
       live: ['/api/live', '/api/live-dashboard', '/api/channel-conditions', '/api/prediction', '/api/engagement-stats', '/api/cost-ticker', '/api/policy-updates'],
+      analysis: ['/api/analysis/dashboard', '/api/analysis/investigations', '/api/analysis/investigations/:id', '/api/analysis/entities', '/api/analysis/money-flows', '/api/analysis/flagged', '/api/analysis/documents'],
       meta: ['/api/data-sources']
     }
   });

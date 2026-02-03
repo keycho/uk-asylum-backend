@@ -1707,7 +1707,7 @@ const contractOverview = {
 const accountabilityFailures = {
   oversight_gaps: [
     { issue: 'Subcontractor lists 5 years out of date', detail: 'Last updated 2019', source: 'OpenDemocracy FOI' },
-    { issue: 'Inspections down 45%', detail: '378/month → 208/month', source: 'ICIBI' },
+    { issue: 'Inspections down 45%', detail: '378/month -> 208/month', source: 'ICIBI' },
     { issue: 'No centralised performance data', detail: 'Cannot benchmark contractors', source: 'FOI May 2024' },
     { issue: '£58M unsupported invoices', detail: 'Clearsprings 2023-24', source: 'NAO May 2025' }
   ],

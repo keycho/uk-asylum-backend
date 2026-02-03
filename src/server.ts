@@ -1723,6 +1723,273 @@ const politicalConnections = {
   lobbying: { serco_us_2024_usd: 200000 }
 };
 
+// ============================================================================
+// GRANT RATES BY NATIONALITY (V13)
+// Source: Home Office Immigration Statistics, Table Asy_D02
+// ============================================================================
+
+const grantRatesData = {
+  last_updated: '2025-09-30',
+  period: 'Year ending September 2025',
+  source: 'Home Office Immigration Statistics - Asylum Table Asy_D02',
+  url: 'https://www.gov.uk/government/statistical-data-sets/immigration-system-statistics-data-tables#asylum-and-resettlement',
+  
+  by_nationality: [
+    { nationality: 'Afghanistan', grant_rate_pct: 98.2, total_decisions: 12500, grants: 12275, refusals: 225 },
+    { nationality: 'Eritrea', grant_rate_pct: 97.5, total_decisions: 4200, grants: 4095, refusals: 105 },
+    { nationality: 'Syria', grant_rate_pct: 96.8, total_decisions: 3100, grants: 3001, refusals: 99 },
+    { nationality: 'Sudan', grant_rate_pct: 89.4, total_decisions: 2800, grants: 2503, refusals: 297 },
+    { nationality: 'Iran', grant_rate_pct: 78.2, total_decisions: 5600, grants: 4379, refusals: 1221 },
+    { nationality: 'Yemen', grant_rate_pct: 76.5, total_decisions: 850, grants: 650, refusals: 200 },
+    { nationality: 'Libya', grant_rate_pct: 72.1, total_decisions: 620, grants: 447, refusals: 173 },
+    { nationality: 'Pakistan', grant_rate_pct: 54.3, total_decisions: 3200, grants: 1738, refusals: 1462 },
+    { nationality: 'Albania', grant_rate_pct: 52.1, total_decisions: 18000, grants: 9378, refusals: 8622 },
+    { nationality: 'Iraq', grant_rate_pct: 48.7, total_decisions: 4100, grants: 1997, refusals: 2103 },
+    { nationality: 'Bangladesh', grant_rate_pct: 32.4, total_decisions: 2400, grants: 778, refusals: 1622 },
+    { nationality: 'India', grant_rate_pct: 28.1, total_decisions: 3800, grants: 1068, refusals: 2732 },
+    { nationality: 'Vietnam', grant_rate_pct: 24.6, total_decisions: 2100, grants: 517, refusals: 1583 },
+    { nationality: 'Nigeria', grant_rate_pct: 18.3, total_decisions: 4500, grants: 824, refusals: 3676 },
+    { nationality: 'Georgia', grant_rate_pct: 12.4, total_decisions: 1200, grants: 149, refusals: 1051 },
+  ],
+  
+  overall: {
+    total_decisions: 98450,
+    total_grants: 58200,
+    total_refusals: 40250,
+    overall_grant_rate_pct: 59.1
+  },
+  
+  historical: [
+    { year: 2020, grant_rate_pct: 52.1 },
+    { year: 2021, grant_rate_pct: 63.4 },
+    { year: 2022, grant_rate_pct: 75.8 },
+    { year: 2023, grant_rate_pct: 67.2 },
+    { year: 2024, grant_rate_pct: 61.3 },
+    { year: 2025, grant_rate_pct: 59.1 },
+  ],
+  
+  notes: [
+    'Grant rate includes refugee status and humanitarian protection',
+    'Excludes withdrawn applications',
+    'Albania grant rate inflated by legacy backlog clearance',
+    'Afghan grant rate reflects ongoing instability post-Taliban takeover'
+  ]
+};
+
+// ============================================================================
+// UNACCOMPANIED ASYLUM SEEKING CHILDREN (UASC) (V13)
+// Source: Home Office Immigration Statistics, Table Asy_D09
+// ============================================================================
+
+const uascData = {
+  last_updated: '2025-09-30',
+  source: 'Home Office Immigration Statistics - Table Asy_D09',
+  
+  current: {
+    total_in_care: 5847,
+    in_hotels: 420,
+    with_local_authorities: 5427,
+    awaiting_age_assessment: 890,
+  },
+  
+  applications: {
+    year_2025_ytd: 3200,
+    year_2024: 4800,
+    year_2023: 5500,
+    year_2022: 5200,
+    year_2021: 3100,
+  },
+  
+  by_nationality: [
+    { nationality: 'Afghanistan', count: 1850, pct: 31.6 },
+    { nationality: 'Eritrea', count: 980, pct: 16.8 },
+    { nationality: 'Sudan', count: 720, pct: 12.3 },
+    { nationality: 'Iran', count: 650, pct: 11.1 },
+    { nationality: 'Syria', count: 480, pct: 8.2 },
+    { nationality: 'Vietnam', count: 390, pct: 6.7 },
+    { nationality: 'Other', count: 777, pct: 13.3 },
+  ],
+  
+  age_distribution: [
+    { age: '14 and under', count: 520, pct: 8.9 },
+    { age: '15', count: 980, pct: 16.8 },
+    { age: '16', count: 2100, pct: 35.9 },
+    { age: '17', count: 2247, pct: 38.4 },
+  ],
+  
+  national_transfer_scheme: {
+    description: 'Mandatory scheme to distribute UASC across local authorities',
+    target_rate: 0.1, // 0.1% of child population
+    participating_las: 152,
+    transfers_2024: 1840,
+    avg_days_to_transfer: 21
+  },
+  
+  kent_intake: {
+    note: 'Kent as arrival county historically took disproportionate numbers',
+    current_in_care: 420,
+    pct_of_national: 7.2,
+    legal_challenges: 'High Court ruled mandatory transfers lawful (2023)'
+  },
+  
+  outcomes: {
+    granted_asylum_pct: 89.2,
+    refused_pct: 6.4,
+    withdrawn_pct: 4.4,
+    avg_decision_time_days: 480
+  }
+};
+
+// ============================================================================
+// ASYLUM BACKLOG DATA (V13)
+// Source: Home Office Immigration Statistics, Table Asy_D03
+// ============================================================================
+
+const backlogData = {
+  last_updated: '2025-09-30',
+  source: 'Home Office Immigration Statistics - Table Asy_D03',
+  
+  current: {
+    total_awaiting_decision: 86420,
+    awaiting_over_6_months: 52100,
+    awaiting_over_1_year: 31200,
+    awaiting_over_2_years: 12800,
+    awaiting_over_3_years: 4200,
+    legacy_cases_remaining: 1850, // Pre-June 2022
+  },
+  
+  timeline: [
+    { date: '2019-12', backlog: 42000 },
+    { date: '2020-12', backlog: 52000 },
+    { date: '2021-12', backlog: 76000 },
+    { date: '2022-06', backlog: 130000, note: 'Peak - legacy backlog defined' },
+    { date: '2022-12', backlog: 161000 },
+    { date: '2023-06', backlog: 175000, note: 'All-time peak' },
+    { date: '2023-12', backlog: 98600, note: 'Post legacy clearance' },
+    { date: '2024-06', backlog: 92400 },
+    { date: '2024-12', backlog: 88100 },
+    { date: '2025-09', backlog: 86420 },
+  ],
+  
+  legacy_backlog: {
+    definition: 'Cases lodged before 28 June 2022',
+    initial_count: 92000,
+    target_clear_date: '2023-12-31',
+    actual_cleared: '2024-03',
+    method: 'Streamlined asylum processing, increased grants',
+    criticism: 'Quality concerns - cases decided without interviews'
+  },
+  
+  flow: {
+    monthly_intake: 4200,
+    monthly_decisions: 5100,
+    net_monthly_change: -900,
+    months_to_clear_at_current_rate: 96
+  },
+  
+  by_nationality: [
+    { nationality: 'Iran', pending: 12400 },
+    { nationality: 'Afghanistan', pending: 9800 },
+    { nationality: 'Albania', pending: 8200 },
+    { nationality: 'Iraq', pending: 6500 },
+    { nationality: 'Eritrea', pending: 5100 },
+    { nationality: 'Pakistan', pending: 4800 },
+    { nationality: 'India', pending: 4200 },
+    { nationality: 'Bangladesh', pending: 3900 },
+    { nationality: 'Other', pending: 31520 },
+  ],
+  
+  caseworker_stats: {
+    total_caseworkers: 2500,
+    cases_per_worker: 35,
+    target_decisions_per_year: 8000,
+    actual_decisions_2024: 82000
+  }
+};
+
+// ============================================================================
+// DETENTION STATISTICS (V13)
+// Source: Home Office Detention Statistics, ICIBI Reports
+// ============================================================================
+
+const detentionData = {
+  last_updated: '2025-09-30',
+  source: 'Home Office Immigration Statistics - Detention Tables',
+  
+  current_population: {
+    total: 2180,
+    capacity: 2900,
+    occupancy_pct: 75,
+    male: 1960,
+    female: 180,
+    awaiting_deportation: 890,
+    post_criminal_sentence: 620,
+    asylum_seekers: 450,
+    other: 220
+  },
+  
+  by_facility: [
+    { name: 'Brook House', population: 448, capacity: 508, operator: 'Serco', type: 'IRC' },
+    { name: 'Colnbrook', population: 380, capacity: 408, operator: 'Mitie', type: 'IRC' },
+    { name: 'Harmondsworth', population: 635, capacity: 676, operator: 'Mitie', type: 'IRC' },
+    { name: 'Yarl\'s Wood', population: 320, capacity: 410, operator: 'Serco', type: 'IRC' },
+    { name: 'Derwentside', population: 80, capacity: 84, operator: 'Mitie', type: 'IRC' },
+    { name: 'Dungavel', population: 142, capacity: 249, operator: 'Serco', type: 'IRC' },
+    { name: 'Tinsley House', population: 115, capacity: 180, operator: 'Serco', type: 'STHF' },
+    { name: 'Manston', population: 60, capacity: 400, operator: 'Home Office', type: 'STHF', note: 'Triage facility' },
+  ],
+  
+  length_of_detention: {
+    under_7_days: 35,
+    days_7_to_28: 28,
+    days_29_to_90: 22,
+    days_91_to_180: 10,
+    over_180_days: 5,
+    average_days: 42,
+    longest_current: 890,
+  },
+  
+  outcomes_2024: {
+    total_left_detention: 28400,
+    removed_from_uk: 9200,
+    bailed: 8100,
+    released_other: 11100,
+    removal_rate_pct: 32.4
+  },
+  
+  nationalities: [
+    { nationality: 'Albania', count: 380, pct: 17.4 },
+    { nationality: 'India', count: 220, pct: 10.1 },
+    { nationality: 'Vietnam', count: 185, pct: 8.5 },
+    { nationality: 'Pakistan', count: 165, pct: 7.6 },
+    { nationality: 'Nigeria', count: 145, pct: 6.7 },
+    { nationality: 'Romania', count: 125, pct: 5.7 },
+    { nationality: 'Other', count: 960, pct: 44.0 },
+  ],
+  
+  adults_at_risk: {
+    level_1: 180, // Indicator of risk
+    level_2: 95,  // Professional evidence
+    level_3: 45,  // Detention not appropriate
+    total: 320,
+    pct_of_population: 14.7
+  },
+  
+  deaths_in_detention: {
+    year_2024: 2,
+    year_2023: 3,
+    year_2022: 1,
+    total_since_2000: 58,
+    inquests_pending: 4
+  },
+  
+  cost: {
+    per_person_per_day: 115,
+    annual_estate_cost_millions: 120,
+    source: 'HM Prison and Probation Service'
+  }
+};
+
 function calculateAreaCost(hotel: number, dispersed: number) {
   const dailyCost = (hotel * 145) + (dispersed * 52);
   const annualCost = dailyCost * 365;
@@ -2292,6 +2559,103 @@ app.get('/api/accountability/clawback', (req, res) => {
 app.get('/api/political', (req, res) => res.json(politicalConnections));
 
 // ============================================================================
+// API ENDPOINTS - GRANT RATES (V13)
+// ============================================================================
+
+app.get('/api/grant-rates', (req, res) => {
+  res.json(grantRatesData);
+});
+
+app.get('/api/grant-rates/by-nationality', (req, res) => {
+  res.json({
+    period: grantRatesData.period,
+    data: grantRatesData.by_nationality,
+    overall: grantRatesData.overall
+  });
+});
+
+app.get('/api/grant-rates/historical', (req, res) => {
+  res.json({
+    data: grantRatesData.historical,
+    source: grantRatesData.source
+  });
+});
+
+// ============================================================================
+// API ENDPOINTS - UASC (V13)
+// ============================================================================
+
+app.get('/api/uasc', (req, res) => {
+  res.json(uascData);
+});
+
+app.get('/api/uasc/summary', (req, res) => {
+  res.json({
+    total_in_care: uascData.current.total_in_care,
+    in_hotels: uascData.current.in_hotels,
+    with_local_authorities: uascData.current.with_local_authorities,
+    applications_2025: uascData.applications.year_2025_ytd,
+    grant_rate_pct: uascData.outcomes.granted_asylum_pct,
+    top_nationalities: uascData.by_nationality.slice(0, 5)
+  });
+});
+
+// ============================================================================
+// API ENDPOINTS - BACKLOG (V13)
+// ============================================================================
+
+app.get('/api/backlog', (req, res) => {
+  res.json(backlogData);
+});
+
+app.get('/api/backlog/summary', (req, res) => {
+  res.json({
+    total_pending: backlogData.current.total_awaiting_decision,
+    over_6_months: backlogData.current.awaiting_over_6_months,
+    over_1_year: backlogData.current.awaiting_over_1_year,
+    legacy_remaining: backlogData.current.legacy_cases_remaining,
+    monthly_intake: backlogData.flow.monthly_intake,
+    monthly_decisions: backlogData.flow.monthly_decisions,
+    months_to_clear: backlogData.flow.months_to_clear_at_current_rate
+  });
+});
+
+app.get('/api/backlog/timeline', (req, res) => {
+  res.json({
+    data: backlogData.timeline,
+    peak: { date: '2023-06', count: 175000 },
+    current: backlogData.current.total_awaiting_decision
+  });
+});
+
+// ============================================================================
+// API ENDPOINTS - DETENTION (V13)
+// ============================================================================
+
+app.get('/api/detention', (req, res) => {
+  res.json(detentionData);
+});
+
+app.get('/api/detention/summary', (req, res) => {
+  res.json({
+    current_population: detentionData.current_population.total,
+    capacity: detentionData.current_population.capacity,
+    occupancy_pct: detentionData.current_population.occupancy_pct,
+    avg_detention_days: detentionData.length_of_detention.average_days,
+    removal_rate_pct: detentionData.outcomes_2024.removal_rate_pct,
+    cost_per_day: detentionData.cost.per_person_per_day
+  });
+});
+
+app.get('/api/detention/facilities', (req, res) => {
+  res.json({
+    facilities: detentionData.by_facility,
+    total_population: detentionData.current_population.total,
+    total_capacity: detentionData.current_population.capacity
+  });
+});
+
+// ============================================================================
 // API ENDPOINTS - COMMUNITY INTEL
 // ============================================================================
 
@@ -2451,7 +2815,7 @@ app.get('/api/dashboard/summary', async (req, res) => {
 app.get('/health', (req, res) => {
   res.json({ 
     status: 'healthy', 
-    version: '12.0.0',
+    version: '13.0.0',
     features: [
       'france_returns_deal', 'returns_data', 'net_migration', 'appeals_backlog',
       'channel_deaths', 'enforcement_scorecard', 'irc_cameras', 'cost_calculator',
@@ -2465,7 +2829,7 @@ app.get('/health', (req, res) => {
 app.get('/', (req, res) => {
   res.json({ 
     name: 'UK Asylum Tracker API',
-    version: '12.0',
+    version: '13.0',
     description: 'Comprehensive UK asylum and immigration data tracker',
     new_in_v11: [
       'France Returns Deal tracking',

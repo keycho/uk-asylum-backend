@@ -966,12 +966,95 @@ const spendingData = {
 // ============================================================================
 
 const localAuthoritiesData = [
+  // Scotland
   { name: 'Glasgow City', ons_code: 'S12000049', region: 'Scotland', population: 635130, total: 3844, hotel: 1180, dispersed: 2200 },
+  { name: 'Edinburgh', ons_code: 'S12000036', region: 'Scotland', population: 527620, total: 1450, hotel: 420, dispersed: 850 },
+  { name: 'Aberdeen', ons_code: 'S12000033', region: 'Scotland', population: 228670, total: 680, hotel: 180, dispersed: 410 },
+  { name: 'Dundee', ons_code: 'S12000042', region: 'Scotland', population: 149320, total: 520, hotel: 140, dispersed: 320 },
+  
+  // North East
   { name: 'Middlesbrough', ons_code: 'E06000002', region: 'North East', population: 143127, total: 1340, hotel: 220, dispersed: 940 },
+  { name: 'Newcastle upon Tyne', ons_code: 'E08000021', region: 'North East', population: 307890, total: 1620, hotel: 270, dispersed: 1100 },
+  { name: 'Sunderland', ons_code: 'E08000024', region: 'North East', population: 277846, total: 980, hotel: 165, dispersed: 680 },
+  { name: 'Gateshead', ons_code: 'E08000037', region: 'North East', population: 196820, total: 750, hotel: 130, dispersed: 520 },
+  { name: 'Hartlepool', ons_code: 'E06000001', region: 'North East', population: 93663, total: 620, hotel: 140, dispersed: 400 },
+  { name: 'Stockton-on-Tees', ons_code: 'E06000004', region: 'North East', population: 199873, total: 720, hotel: 150, dispersed: 480 },
+  { name: 'Redcar and Cleveland', ons_code: 'E06000003', region: 'North East', population: 138548, total: 580, hotel: 120, dispersed: 380 },
+  
+  // North West
   { name: 'Liverpool', ons_code: 'E08000012', region: 'North West', population: 496770, total: 2361, hotel: 480, dispersed: 1560 },
+  { name: 'Manchester', ons_code: 'E08000003', region: 'North West', population: 568996, total: 1997, hotel: 580, dispersed: 1150 },
+  { name: 'Blackpool', ons_code: 'E06000009', region: 'North West', population: 141040, total: 750, hotel: 175, dispersed: 480 },
+  { name: 'Bolton', ons_code: 'E08000001', region: 'North West', population: 293580, total: 890, hotel: 205, dispersed: 560 },
+  { name: 'Salford', ons_code: 'E08000006', region: 'North West', population: 272330, total: 810, hotel: 245, dispersed: 460 },
+  { name: 'Rochdale', ons_code: 'E08000005', region: 'North West', population: 223580, total: 740, hotel: 210, dispersed: 430 },
+  { name: 'Oldham', ons_code: 'E08000004', region: 'North West', population: 237628, total: 690, hotel: 195, dispersed: 400 },
+  { name: 'Wigan', ons_code: 'E08000010', region: 'North West', population: 329825, total: 610, hotel: 165, dispersed: 360 },
+  { name: 'Stockport', ons_code: 'E08000007', region: 'North West', population: 295170, total: 555, hotel: 150, dispersed: 330 },
+  { name: 'Trafford', ons_code: 'E08000009', region: 'North West', population: 237300, total: 458, hotel: 125, dispersed: 270 },
+  { name: 'Sefton', ons_code: 'E08000014', region: 'North West', population: 280790, total: 560, hotel: 130, dispersed: 350 },
+  
+  // Yorkshire
+  { name: 'Leeds', ons_code: 'E08000035', region: 'Yorkshire and The Humber', population: 812000, total: 1820, hotel: 320, dispersed: 1240 },
+  { name: 'Bradford', ons_code: 'E08000032', region: 'Yorkshire and The Humber', population: 546400, total: 1620, hotel: 290, dispersed: 1100 },
+  { name: 'Sheffield', ons_code: 'E08000019', region: 'Yorkshire and The Humber', population: 584853, total: 1540, hotel: 280, dispersed: 1040 },
+  { name: 'Hull', ons_code: 'E06000010', region: 'Yorkshire and The Humber', population: 267050, total: 980, hotel: 200, dispersed: 640 },
+  { name: 'Kirklees', ons_code: 'E08000034', region: 'Yorkshire and The Humber', population: 441290, total: 850, hotel: 150, dispersed: 580 },
+  { name: 'Wakefield', ons_code: 'E08000036', region: 'Yorkshire and The Humber', population: 353540, total: 720, hotel: 130, dispersed: 490 },
+  { name: 'Barnsley', ons_code: 'E08000016', region: 'Yorkshire and The Humber', population: 248530, total: 700, hotel: 145, dispersed: 460 },
+  { name: 'Rotherham', ons_code: 'E08000018', region: 'Yorkshire and The Humber', population: 265800, total: 680, hotel: 140, dispersed: 450 },
+  { name: 'Doncaster', ons_code: 'E08000017', region: 'Yorkshire and The Humber', population: 311870, total: 650, hotel: 135, dispersed: 420 },
+  { name: 'York', ons_code: 'E06000014', region: 'Yorkshire and The Humber', population: 211012, total: 370, hotel: 95, dispersed: 220 },
+  
+  // West Midlands
   { name: 'Birmingham', ons_code: 'E08000025', region: 'West Midlands', population: 1157603, total: 2755, hotel: 850, dispersed: 1600 },
+  { name: 'Coventry', ons_code: 'E08000026', region: 'West Midlands', population: 379387, total: 1280, hotel: 360, dispersed: 760 },
+  { name: 'Wolverhampton', ons_code: 'E08000031', region: 'West Midlands', population: 265178, total: 1080, hotel: 310, dispersed: 640 },
+  { name: 'Sandwell', ons_code: 'E08000028', region: 'West Midlands', population: 341904, total: 980, hotel: 290, dispersed: 570 },
+  { name: 'Walsall', ons_code: 'E08000030', region: 'West Midlands', population: 288770, total: 850, hotel: 250, dispersed: 500 },
+  { name: 'Dudley', ons_code: 'E08000027', region: 'West Midlands', population: 328654, total: 720, hotel: 200, dispersed: 430 },
+  { name: 'Stoke-on-Trent', ons_code: 'E06000021', region: 'West Midlands', population: 260200, total: 1120, hotel: 280, dispersed: 700 },
+  
+  // London
   { name: 'Hillingdon', ons_code: 'E09000017', region: 'London', population: 309014, total: 2481, hotel: 2100, dispersed: 230 },
-  // ... more LAs would be included from v11
+  { name: 'Croydon', ons_code: 'E09000008', region: 'London', population: 395510, total: 1980, hotel: 1450, dispersed: 360 },
+  { name: 'Newham', ons_code: 'E09000025', region: 'London', population: 387576, total: 1820, hotel: 1360, dispersed: 310 },
+  { name: 'Hounslow', ons_code: 'E09000018', region: 'London', population: 292389, total: 1540, hotel: 1200, dispersed: 220 },
+  { name: 'Barking and Dagenham', ons_code: 'E09000002', region: 'London', population: 221495, total: 1070, hotel: 820, dispersed: 160 },
+  { name: 'Ealing', ons_code: 'E09000009', region: 'London', population: 367115, total: 980, hotel: 740, dispersed: 160 },
+  { name: 'Brent', ons_code: 'E09000005', region: 'London', population: 339800, total: 920, hotel: 690, dispersed: 150 },
+  { name: 'Redbridge', ons_code: 'E09000026', region: 'London', population: 310300, total: 870, hotel: 650, dispersed: 145 },
+  { name: 'Haringey', ons_code: 'E09000014', region: 'London', population: 268647, total: 890, hotel: 670, dispersed: 140 },
+  { name: 'Enfield', ons_code: 'E09000010', region: 'London', population: 338143, total: 810, hotel: 610, dispersed: 140 },
+  
+  // East Midlands
+  { name: 'Leicester', ons_code: 'E06000016', region: 'East Midlands', population: 374000, total: 1210, hotel: 280, dispersed: 760 },
+  { name: 'Nottingham', ons_code: 'E06000018', region: 'East Midlands', population: 338590, total: 1130, hotel: 260, dispersed: 720 },
+  { name: 'Derby', ons_code: 'E06000015', region: 'East Midlands', population: 263490, total: 850, hotel: 220, dispersed: 540 },
+  { name: 'Northampton', ons_code: 'E06000061', region: 'East Midlands', population: 231000, total: 450, hotel: 125, dispersed: 260 },
+  
+  // East of England
+  { name: 'Peterborough', ons_code: 'E06000031', region: 'East of England', population: 215700, total: 760, hotel: 260, dispersed: 410 },
+  { name: 'Luton', ons_code: 'E06000032', region: 'East of England', population: 225300, total: 680, hotel: 290, dispersed: 310 },
+  
+  // South East
+  { name: 'Southampton', ons_code: 'E06000045', region: 'South East', population: 260626, total: 680, hotel: 260, dispersed: 340 },
+  { name: 'Portsmouth', ons_code: 'E06000044', region: 'South East', population: 215133, total: 600, hotel: 235, dispersed: 300 },
+  { name: 'Brighton and Hove', ons_code: 'E06000043', region: 'South East', population: 277174, total: 530, hotel: 215, dispersed: 260 },
+  { name: 'Slough', ons_code: 'E06000039', region: 'South East', population: 164000, total: 600, hotel: 360, dispersed: 190 },
+  { name: 'Oxford', ons_code: 'E07000178', region: 'South East', population: 162100, total: 300, hotel: 125, dispersed: 140 },
+  
+  // South West
+  { name: 'Bristol', ons_code: 'E06000023', region: 'South West', population: 472400, total: 1060, hotel: 310, dispersed: 620 },
+  { name: 'Plymouth', ons_code: 'E06000026', region: 'South West', population: 265200, total: 600, hotel: 200, dispersed: 330 },
+  
+  // Wales
+  { name: 'Cardiff', ons_code: 'W06000015', region: 'Wales', population: 369202, total: 890, hotel: 240, dispersed: 540 },
+  { name: 'Swansea', ons_code: 'W06000011', region: 'Wales', population: 247000, total: 600, hotel: 165, dispersed: 360 },
+  { name: 'Newport', ons_code: 'W06000022', region: 'Wales', population: 159600, total: 530, hotel: 145, dispersed: 320 },
+  
+  // Northern Ireland
+  { name: 'Belfast', ons_code: 'N09000003', region: 'Northern Ireland', population: 345418, total: 850, hotel: 290, dispersed: 470 },
 ];
 
 // ============================================================================

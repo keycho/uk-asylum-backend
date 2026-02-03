@@ -1131,12 +1131,11 @@ async function initDatabase() {
 // ============================================================================
 
 app.get('/api/contractors', (req, res) => {
-  const summary = Object.values(contractorProfiles).map(c => ({
+  const summary = Object.values(contractorProfiles).map((c: any) => ({
     id: c.id,
     name: c.name,
     contract_value_millions: c.contract.current_value_millions,
     profit_margin_pct: c.id === 'clearsprings' ? c.financials.data[4].margin_pct : 
-                       c.id === 'serco' ? c.financials.asylum_margin_pct :
                        c.financials.asylum_margin_pct,
     people_housed: c.accommodation.people_housed,
     regions: c.contract.regions,
@@ -1157,13 +1156,13 @@ app.get('/api/contractors', (req, res) => {
 });
 
 app.get('/api/contractors/:id', (req, res) => {
-  const contractor = contractorProfiles[req.params.id as keyof typeof contractorProfiles];
+  const contractor = (contractorProfiles as any)[req.params.id];
   if (!contractor) return res.status(404).json({ error: 'Contractor not found' });
   res.json(contractor);
 });
 
 app.get('/api/contractors/:id/financials', (req, res) => {
-  const contractor = contractorProfiles[req.params.id as keyof typeof contractorProfiles];
+  const contractor = (contractorProfiles as any)[req.params.id];
   if (!contractor) return res.status(404).json({ error: 'Contractor not found' });
   res.json({
     name: contractor.name,
@@ -1173,7 +1172,7 @@ app.get('/api/contractors/:id/financials', (req, res) => {
 });
 
 app.get('/api/contractors/:id/controversies', (req, res) => {
-  const contractor = contractorProfiles[req.params.id as keyof typeof contractorProfiles];
+  const contractor = (contractorProfiles as any)[req.params.id];
   if (!contractor) return res.status(404).json({ error: 'Contractor not found' });
   res.json({
     name: contractor.name,
@@ -1187,7 +1186,7 @@ app.get('/api/contractors/:id/controversies', (req, res) => {
 // ============================================================================
 
 app.get('/api/individuals', (req, res) => {
-  const summary = Object.values(keyIndividuals).map(i => ({
+  const summary = Object.values(keyIndividuals).map((i: any) => ({
     id: i.id,
     name: i.name,
     company: i.company,
@@ -1200,13 +1199,13 @@ app.get('/api/individuals', (req, res) => {
 });
 
 app.get('/api/individuals/:id', (req, res) => {
-  const individual = keyIndividuals[req.params.id as keyof typeof keyIndividuals];
+  const individual = (keyIndividuals as any)[req.params.id];
   if (!individual) return res.status(404).json({ error: 'Individual not found' });
   res.json(individual);
 });
 
 app.get('/api/individuals/graham_king/wealth', (req, res) => {
-  const gk = keyIndividuals.graham_king;
+  const gk = keyIndividuals.graham_king as any;
   res.json({
     name: gk.name,
     current_net_worth_millions: gk.wealth.timeline[gk.wealth.timeline.length - 1].net_worth_millions,

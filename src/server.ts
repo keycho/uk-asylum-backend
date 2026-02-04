@@ -2383,6 +2383,9 @@ async function detectIncidentsFromNews(): Promise<number> {
   const news = await aggregateNews();
   let newIncidents = 0;
 
+  // Get existing hotspots from database for deduplication
+  const existingHotspots = await getHotspotsFromDb();
+
   for (const item of news) {
     const text = `${item.title} ${item.summary}`;
     const lowerText = text.toLowerCase();
@@ -2401,19 +2404,29 @@ async function detectIncidentsFromNews(): Promise<number> {
     if (!location) continue;
 
     // Check if we already have this incident (same location, last 24h)
-    const existingIncident = hotspotIncidents.find(inc =>
+    const existingIncident = existingHotspots.find(inc =>
       inc.location.name.toLowerCase() === location.name.toLowerCase() &&
       (Date.now() - new Date(inc.started_at).getTime()) < 24 * 60 * 60 * 1000
     );
 
     if (existingIncident) {
-      // Update existing incident
-      existingIncident.sources.push({ name: item.source, url: item.url, timestamp: item.published });
-      existingIncident.last_updated = new Date().toISOString();
+      // Update existing incident in database
       const newSeverity = detectSeverity(text);
+      const newSources = [
+        ...existingIncident.sources,
+        { name: item.source, url: item.url, timestamp: item.published }
+      ];
+      const newTimeline = existingIncident.timeline;
+
       if (newSeverity === 'RED' && existingIncident.status !== 'RED') {
-        existingIncident.status = 'RED';
-        existingIncident.timeline.push({ time: new Date().toISOString(), update: `Escalated: ${item.title}`, status: 'RED' });
+        newTimeline.push({ time: new Date().toISOString(), update: `Escalated: ${item.title}`, status: 'RED' });
+        await updateHotspotInDb(existingIncident.id, {
+          status: 'RED',
+          sources: newSources,
+          timeline: newTimeline
+        });
+      } else {
+        await updateHotspotInDb(existingIncident.id, { sources: newSources });
       }
     } else {
       // Create new incident
@@ -2435,7 +2448,7 @@ async function detectIncidentsFromNews(): Promise<number> {
         verified: false,
         timeline: [{ time: item.published, update: 'Incident detected from news', status: detectSeverity(text) }]
       };
-      hotspotIncidents.unshift(incident);
+      await insertHotspotToDb(incident);
       newIncidents++;
     }
   }
@@ -2451,7 +2464,9 @@ async function detectIncidentsFromNews(): Promise<number> {
       ].some(kw => lowerContent.includes(kw));
 
       if (hasUnrestKeyword) {
-        const existingIncident = hotspotIncidents.find(inc =>
+        // Re-fetch to include any newly added incidents
+        const currentHotspots = await getHotspotsFromDb();
+        const existingIncident = currentHotspots.find(inc =>
           Math.abs(inc.location.lat - (tip.location?.lat || 0)) < 0.01 &&
           Math.abs(inc.location.lng - (tip.location?.lng || 0)) < 0.01 &&
           (Date.now() - new Date(inc.started_at).getTime()) < 24 * 60 * 60 * 1000
@@ -2481,7 +2496,7 @@ async function detectIncidentsFromNews(): Promise<number> {
             verified: tip.verified,
             timeline: [{ time: tip.submitted_at, update: 'Incident reported by community', status: detectSeverity(tip.content) }]
           };
-          hotspotIncidents.unshift(incident);
+          await insertHotspotToDb(incident);
           newIncidents++;
         }
       }
@@ -2553,8 +2568,306 @@ function seedHistoricalIncidents(): void {
   }
 }
 
-// Initialize on startup
+// Initialize on startup (in-memory fallback)
 seedHistoricalIncidents();
+
+// ============================================================================
+// HOTSPOT DATABASE FUNCTIONS
+// ============================================================================
+
+// Seed initial hotspots to database
+async function seedHotspotsToDatabase(): Promise<void> {
+  const seedData = [
+    {
+      title: 'Anti-immigration protest outside asylum hotel',
+      type: 'protest',
+      status: 'YELLOW',
+      location: { name: 'Rotherham', ...UK_LOCATIONS['rotherham'] },
+      description: 'Approximately 200 protesters gathered outside Holiday Inn housing asylum seekers. Police maintaining cordon.',
+      related_to_asylum: true
+    },
+    {
+      title: 'Counter-demonstration in city centre',
+      type: 'demonstration',
+      status: 'YELLOW',
+      location: { name: 'Birmingham', ...UK_LOCATIONS['birmingham'] },
+      description: 'Stand Up To Racism counter-protest. Peaceful gathering of around 500.',
+      related_to_asylum: true
+    }
+  ];
+
+  for (const seed of seedData) {
+    const id = generateIncidentId();
+    const startedAt = new Date(Date.now() - 12 * 60 * 60 * 1000);
+    const lastUpdated = new Date(Date.now() - 6 * 60 * 60 * 1000);
+
+    await pool.query(`
+      INSERT INTO hotspots (id, type, status, title, description, lat, lng, location_name, region, sources, police_present, injuries_reported, arrests_reported, related_to_asylum, auto_detected, verified, timeline, started_at, last_updated)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
+    `, [
+      id,
+      seed.type,
+      seed.status,
+      seed.title,
+      seed.description,
+      seed.location.lat,
+      seed.location.lng,
+      seed.location.name,
+      seed.location.region,
+      JSON.stringify([{ name: 'Historical record', timestamp: new Date().toISOString() }]),
+      true, // police_present
+      false, // injuries_reported
+      0, // arrests_reported
+      seed.related_to_asylum,
+      false, // auto_detected
+      true, // verified
+      JSON.stringify([{ time: startedAt.toISOString(), update: 'Incident began', status: 'AMBER' }]),
+      startedAt,
+      lastUpdated
+    ]);
+  }
+}
+
+// Convert database row to HotspotIncident interface
+function dbRowToHotspot(row: any): HotspotIncident {
+  return {
+    id: row.id,
+    title: row.title,
+    type: row.type,
+    status: row.status,
+    location: {
+      name: row.location_name,
+      lat: parseFloat(row.lat),
+      lng: parseFloat(row.lng),
+      region: row.region
+    },
+    description: row.description || '',
+    started_at: row.started_at?.toISOString() || new Date().toISOString(),
+    last_updated: row.last_updated?.toISOString() || new Date().toISOString(),
+    sources: typeof row.sources === 'string' ? JSON.parse(row.sources) : (row.sources || []),
+    crowd_estimate: row.crowd_estimate,
+    police_present: row.police_present || false,
+    injuries_reported: row.injuries_reported || false,
+    arrests_reported: row.arrests_reported || 0,
+    related_to_asylum: row.related_to_asylum || false,
+    auto_detected: row.auto_detected || false,
+    verified: row.verified || false,
+    timeline: typeof row.timeline === 'string' ? JSON.parse(row.timeline) : (row.timeline || [])
+  };
+}
+
+// Get all hotspots from database
+async function getHotspotsFromDb(): Promise<HotspotIncident[]> {
+  try {
+    const result = await pool.query('SELECT * FROM hotspots ORDER BY started_at DESC');
+    return result.rows.map(dbRowToHotspot);
+  } catch (error) {
+    console.error('Error fetching hotspots from DB:', error);
+    return hotspotIncidents; // Fallback to in-memory
+  }
+}
+
+// Get active hotspots from database (non-NEUTRAL)
+async function getActiveHotspotsFromDb(): Promise<HotspotIncident[]> {
+  try {
+    // First, decay old statuses
+    await decayHotspotStatusesInDb();
+
+    const result = await pool.query(`
+      SELECT * FROM hotspots
+      WHERE status != 'NEUTRAL'
+      ORDER BY
+        CASE status
+          WHEN 'RED' THEN 0
+          WHEN 'AMBER' THEN 1
+          WHEN 'YELLOW' THEN 2
+          ELSE 3
+        END,
+        started_at DESC
+    `);
+    return result.rows.map(dbRowToHotspot);
+  } catch (error) {
+    console.error('Error fetching active hotspots from DB:', error);
+    return getActiveHotspots(); // Fallback to in-memory
+  }
+}
+
+// Get single hotspot by ID
+async function getHotspotByIdFromDb(id: string): Promise<HotspotIncident | null> {
+  try {
+    const result = await pool.query('SELECT * FROM hotspots WHERE id = $1', [id]);
+    if (result.rows.length === 0) return null;
+    return dbRowToHotspot(result.rows[0]);
+  } catch (error) {
+    console.error('Error fetching hotspot from DB:', error);
+    return hotspotIncidents.find(h => h.id === id) || null;
+  }
+}
+
+// Insert new hotspot to database
+async function insertHotspotToDb(incident: HotspotIncident): Promise<void> {
+  try {
+    await pool.query(`
+      INSERT INTO hotspots (id, type, status, title, description, lat, lng, location_name, region, sources, crowd_estimate, police_present, injuries_reported, arrests_reported, related_to_asylum, auto_detected, verified, timeline, started_at, last_updated)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
+    `, [
+      incident.id,
+      incident.type,
+      incident.status,
+      incident.title,
+      incident.description,
+      incident.location.lat,
+      incident.location.lng,
+      incident.location.name,
+      incident.location.region,
+      JSON.stringify(incident.sources),
+      incident.crowd_estimate,
+      incident.police_present,
+      incident.injuries_reported,
+      incident.arrests_reported,
+      incident.related_to_asylum,
+      incident.auto_detected,
+      incident.verified,
+      JSON.stringify(incident.timeline),
+      incident.started_at,
+      incident.last_updated
+    ]);
+    // Also keep in memory for fallback
+    hotspotIncidents.unshift(incident);
+  } catch (error) {
+    console.error('Error inserting hotspot to DB:', error);
+    hotspotIncidents.unshift(incident); // Fallback to in-memory only
+  }
+}
+
+// Update hotspot in database
+async function updateHotspotInDb(id: string, updates: Partial<HotspotIncident>): Promise<HotspotIncident | null> {
+  try {
+    const setClauses: string[] = [];
+    const values: any[] = [];
+    let paramIndex = 1;
+
+    if (updates.status !== undefined) {
+      setClauses.push(`status = $${paramIndex++}`);
+      values.push(updates.status);
+    }
+    if (updates.verified !== undefined) {
+      setClauses.push(`verified = $${paramIndex++}`);
+      values.push(updates.verified);
+    }
+    if (updates.arrests_reported !== undefined) {
+      setClauses.push(`arrests_reported = $${paramIndex++}`);
+      values.push(updates.arrests_reported);
+    }
+    if (updates.injuries_reported !== undefined) {
+      setClauses.push(`injuries_reported = $${paramIndex++}`);
+      values.push(updates.injuries_reported);
+    }
+    if (updates.timeline !== undefined) {
+      setClauses.push(`timeline = $${paramIndex++}`);
+      values.push(JSON.stringify(updates.timeline));
+    }
+    if (updates.sources !== undefined) {
+      setClauses.push(`sources = $${paramIndex++}`);
+      values.push(JSON.stringify(updates.sources));
+    }
+
+    setClauses.push(`last_updated = $${paramIndex++}`);
+    values.push(new Date());
+
+    values.push(id);
+
+    const result = await pool.query(
+      `UPDATE hotspots SET ${setClauses.join(', ')} WHERE id = $${paramIndex} RETURNING *`,
+      values
+    );
+
+    if (result.rows.length === 0) return null;
+    return dbRowToHotspot(result.rows[0]);
+  } catch (error) {
+    console.error('Error updating hotspot in DB:', error);
+    return null;
+  }
+}
+
+// Auto-decay incident statuses in database
+async function decayHotspotStatusesInDb(): Promise<void> {
+  try {
+    const now = new Date();
+
+    // RED to AMBER after 2 hours
+    await pool.query(`
+      UPDATE hotspots
+      SET status = 'AMBER',
+          timeline = timeline || $1::jsonb,
+          last_updated = NOW()
+      WHERE status = 'RED'
+        AND last_updated < NOW() - INTERVAL '2 hours'
+    `, [JSON.stringify([{ time: now.toISOString(), update: 'Auto-decayed to AMBER (no updates)', status: 'AMBER' }])]);
+
+    // AMBER to YELLOW after 6 hours
+    await pool.query(`
+      UPDATE hotspots
+      SET status = 'YELLOW',
+          timeline = timeline || $1::jsonb,
+          last_updated = NOW()
+      WHERE status = 'AMBER'
+        AND last_updated < NOW() - INTERVAL '6 hours'
+    `, [JSON.stringify([{ time: now.toISOString(), update: 'Auto-decayed to YELLOW (cooling)', status: 'YELLOW' }])]);
+
+    // YELLOW to NEUTRAL after 24 hours
+    await pool.query(`
+      UPDATE hotspots
+      SET status = 'NEUTRAL',
+          timeline = timeline || $1::jsonb,
+          last_updated = NOW()
+      WHERE status = 'YELLOW'
+        AND last_updated < NOW() - INTERVAL '24 hours'
+    `, [JSON.stringify([{ time: now.toISOString(), update: 'Auto-decayed to NEUTRAL (resolved)', status: 'NEUTRAL' }])]);
+  } catch (error) {
+    console.error('Error decaying hotspot statuses:', error);
+  }
+}
+
+// Get hotspots near a location from database
+async function getHotspotsNearLocationFromDb(lat: number, lng: number, radiusKm: number): Promise<HotspotIncident[]> {
+  try {
+    // Approximate distance calculation using lat/lng
+    const result = await pool.query(`
+      SELECT *,
+        SQRT(POW((lat - $1) * 111, 2) + POW((lng - $2) * 74, 2)) as distance_km
+      FROM hotspots
+      WHERE SQRT(POW((lat - $1) * 111, 2) + POW((lng - $2) * 74, 2)) <= $3
+      ORDER BY distance_km
+    `, [lat, lng, radiusKm]);
+    return result.rows.map(dbRowToHotspot);
+  } catch (error) {
+    console.error('Error fetching nearby hotspots:', error);
+    return hotspotIncidents.filter(h => {
+      const distance = Math.sqrt(
+        Math.pow((h.location.lat - lat) * 111, 2) +
+        Math.pow((h.location.lng - lng) * 74, 2)
+      );
+      return distance <= radiusKm;
+    });
+  }
+}
+
+// Get historical hotspots from database
+async function getHistoricalHotspotsFromDb(days: number): Promise<HotspotIncident[]> {
+  try {
+    const result = await pool.query(`
+      SELECT * FROM hotspots
+      WHERE started_at > NOW() - INTERVAL '1 day' * $1
+      ORDER BY started_at DESC
+    `, [days]);
+    return result.rows.map(dbRowToHotspot);
+  } catch (error) {
+    console.error('Error fetching historical hotspots:', error);
+    const cutoff = Date.now() - (days * 24 * 60 * 60 * 1000);
+    return hotspotIncidents.filter(h => new Date(h.started_at).getTime() > cutoff);
+  }
+}
 
 function calculateAreaCost(hotel: number, dispersed: number) {
   const dailyCost = (hotel * 145) + (dispersed * 52);
@@ -2609,7 +2922,44 @@ async function initDatabase() {
         );
       }
     }
-    
+
+    // Create hotspots table for live incident tracking
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS hotspots (
+        id VARCHAR(50) PRIMARY KEY,
+        type VARCHAR(50) NOT NULL,
+        status VARCHAR(10) DEFAULT 'YELLOW',
+        title VARCHAR(255) NOT NULL,
+        description TEXT,
+        lat DECIMAL(10, 7) NOT NULL,
+        lng DECIMAL(10, 7) NOT NULL,
+        location_name VARCHAR(255),
+        region VARCHAR(100),
+        sources JSONB DEFAULT '[]',
+        crowd_estimate VARCHAR(100),
+        police_present BOOLEAN DEFAULT FALSE,
+        injuries_reported BOOLEAN DEFAULT FALSE,
+        arrests_reported INTEGER DEFAULT 0,
+        related_to_asylum BOOLEAN DEFAULT FALSE,
+        auto_detected BOOLEAN DEFAULT FALSE,
+        verified BOOLEAN DEFAULT FALSE,
+        timeline JSONB DEFAULT '[]',
+        started_at TIMESTAMP DEFAULT NOW(),
+        last_updated TIMESTAMP DEFAULT NOW()
+      )
+    `);
+
+    // Create indexes for hotspots
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_hotspots_status ON hotspots(status)`);
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_hotspots_location ON hotspots(lat, lng)`);
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_hotspots_started ON hotspots(started_at)`);
+
+    // Seed hotspots if empty
+    const hotspotCount = await pool.query('SELECT COUNT(*) FROM hotspots');
+    if (parseInt(hotspotCount.rows[0].count) === 0) {
+      await seedHotspotsToDatabase();
+    }
+
     console.log('Database initialized');
   } catch (error) {
     console.error('Database init error:', error);
@@ -3378,217 +3728,256 @@ app.post('/api/alerts/subscribe', (req, res) => {
 
 // Get all active hotspots for map display
 app.get('/api/hotspots', async (req, res) => {
-  // Refresh from news sources
-  await detectIncidentsFromNews();
+  try {
+    // Refresh from news sources
+    await detectIncidentsFromNews();
 
-  const active = getActiveHotspots();
-  const asylumOnly = req.query.asylum === 'true';
+    const active = await getActiveHotspotsFromDb();
+    const asylumOnly = req.query.asylum === 'true';
 
-  const filtered = asylumOnly ? active.filter(h => h.related_to_asylum) : active;
+    const filtered = asylumOnly ? active.filter(h => h.related_to_asylum) : active;
 
-  res.json({
-    last_updated: new Date().toISOString(),
-    auto_refresh_seconds: 300, // Suggest frontend refresh every 5 mins
-    total_active: filtered.length,
-    by_status: {
-      RED: filtered.filter(h => h.status === 'RED').length,
-      AMBER: filtered.filter(h => h.status === 'AMBER').length,
-      YELLOW: filtered.filter(h => h.status === 'YELLOW').length
-    },
-    incidents: filtered.map(h => ({
-      id: h.id,
-      title: h.title,
-      type: h.type,
-      status: h.status,
-      location: h.location,
-      started_at: h.started_at,
-      last_updated: h.last_updated,
-      related_to_asylum: h.related_to_asylum,
-      verified: h.verified,
-      source_count: h.sources.length
-    })),
-    legend: {
-      RED: 'Active unrest - violence or significant disorder ongoing',
-      AMBER: 'Escalating or recent - situation tense, monitoring',
-      YELLOW: 'Cooling - incident winding down or minor',
-      NEUTRAL: 'Resolved - included in historical record only'
-    }
-  });
-});
-
-// Get single incident with full details
-app.get('/api/hotspots/:id', (req, res) => {
-  const incident = hotspotIncidents.find(h => h.id === req.params.id);
-  if (!incident) return res.status(404).json({ error: 'Incident not found' });
-  res.json(incident);
-});
-
-// Get historical incidents (including resolved)
-app.get('/api/hotspots/history', (req, res) => {
-  const days = parseInt(req.query.days as string) || 7;
-  const cutoff = Date.now() - (days * 24 * 60 * 60 * 1000);
-
-  const historical = hotspotIncidents.filter(h =>
-    new Date(h.started_at).getTime() > cutoff
-  );
-
-  res.json({
-    period_days: days,
-    total_incidents: historical.length,
-    by_type: {
-      riot: historical.filter(h => h.type === 'riot').length,
-      protest: historical.filter(h => h.type === 'protest').length,
-      march: historical.filter(h => h.type === 'march').length,
-      disorder: historical.filter(h => h.type === 'disorder').length,
-      demonstration: historical.filter(h => h.type === 'demonstration').length,
-      flashpoint: historical.filter(h => h.type === 'flashpoint').length
-    },
-    asylum_related: historical.filter(h => h.related_to_asylum).length,
-    incidents: historical
-  });
-});
-
-// Get incidents near a location
-app.get('/api/hotspots/near/:lat/:lng', (req, res) => {
-  const lat = parseFloat(req.params.lat);
-  const lng = parseFloat(req.params.lng);
-  const radiusKm = parseFloat(req.query.radius as string) || 50;
-
-  const nearby = hotspotIncidents.filter(h => {
-    const distance = Math.sqrt(
-      Math.pow((h.location.lat - lat) * 111, 2) +
-      Math.pow((h.location.lng - lng) * 74, 2)
-    );
-    return distance <= radiusKm;
-  });
-
-  res.json({
-    center: { lat, lng },
-    radius_km: radiusKm,
-    incidents: nearby
-  });
-});
-
-// Manual incident report (for moderators/journalists)
-app.post('/api/hotspots', (req, res) => {
-  const { title, type, status, location, description, sources, police_present, injuries_reported, arrests_reported, related_to_asylum } = req.body;
-
-  if (!title || !location?.lat || !location?.lng) {
-    return res.status(400).json({ error: 'Missing required fields: title, location.lat, location.lng' });
-  }
-
-  const incident: HotspotIncident = {
-    id: generateIncidentId(),
-    title,
-    type: type || 'protest',
-    status: status || 'AMBER',
-    location: {
-      name: location.name || 'Unknown',
-      lat: location.lat,
-      lng: location.lng,
-      region: location.region
-    },
-    description: description || '',
-    started_at: new Date().toISOString(),
-    last_updated: new Date().toISOString(),
-    sources: sources || [{ name: 'Manual report', timestamp: new Date().toISOString() }],
-    police_present: police_present || false,
-    injuries_reported: injuries_reported || false,
-    arrests_reported: arrests_reported || 0,
-    related_to_asylum: related_to_asylum || false,
-    auto_detected: false,
-    verified: false,
-    timeline: [{ time: new Date().toISOString(), update: 'Incident manually reported', status: status || 'AMBER' }]
-  };
-
-  hotspotIncidents.unshift(incident);
-  res.status(201).json({ message: 'Incident created', incident });
-});
-
-// Update incident status (for moderators)
-app.patch('/api/hotspots/:id', (req, res) => {
-  const incident = hotspotIncidents.find(h => h.id === req.params.id);
-  if (!incident) return res.status(404).json({ error: 'Incident not found' });
-
-  const { status, update_note, verified, arrests_reported, injuries_reported } = req.body;
-
-  if (status && ['RED', 'AMBER', 'YELLOW', 'NEUTRAL'].includes(status)) {
-    incident.status = status;
-    incident.timeline.push({
-      time: new Date().toISOString(),
-      update: update_note || `Status changed to ${status}`,
-      status
-    });
-  }
-
-  if (verified !== undefined) incident.verified = verified;
-  if (arrests_reported !== undefined) incident.arrests_reported = arrests_reported;
-  if (injuries_reported !== undefined) incident.injuries_reported = injuries_reported;
-
-  incident.last_updated = new Date().toISOString();
-
-  res.json({ message: 'Incident updated', incident });
-});
-
-// Get map GeoJSON for easy frontend integration
-app.get('/api/hotspots/geojson', async (req, res) => {
-  await detectIncidentsFromNews();
-  const active = getActiveHotspots();
-
-  const geojson = {
-    type: 'FeatureCollection',
-    generated_at: new Date().toISOString(),
-    features: active.map(h => ({
-      type: 'Feature',
-      id: h.id,
-      geometry: {
-        type: 'Point',
-        coordinates: [h.location.lng, h.location.lat]
+    res.json({
+      last_updated: new Date().toISOString(),
+      auto_refresh_seconds: 300, // Suggest frontend refresh every 5 mins
+      total_active: filtered.length,
+      by_status: {
+        RED: filtered.filter(h => h.status === 'RED').length,
+        AMBER: filtered.filter(h => h.status === 'AMBER').length,
+        YELLOW: filtered.filter(h => h.status === 'YELLOW').length
       },
-      properties: {
+      incidents: filtered.map(h => ({
         id: h.id,
         title: h.title,
         type: h.type,
         status: h.status,
-        color: h.status === 'RED' ? '#ef4444' : h.status === 'AMBER' ? '#f59e0b' : '#eab308',
-        location_name: h.location.name,
-        region: h.location.region,
+        location: h.location,
         started_at: h.started_at,
         last_updated: h.last_updated,
         related_to_asylum: h.related_to_asylum,
-        verified: h.verified
+        verified: h.verified,
+        source_count: h.sources.length
+      })),
+      legend: {
+        RED: 'Active unrest - violence or significant disorder ongoing',
+        AMBER: 'Escalating or recent - situation tense, monitoring',
+        YELLOW: 'Cooling - incident winding down or minor',
+        NEUTRAL: 'Resolved - included in historical record only'
       }
-    }))
-  };
+    });
+  } catch (error) {
+    console.error('Error fetching hotspots:', error);
+    res.status(500).json({ error: 'Failed to fetch hotspots' });
+  }
+});
 
-  res.json(geojson);
+// Get single incident with full details
+app.get('/api/hotspots/:id', async (req, res) => {
+  try {
+    const incident = await getHotspotByIdFromDb(req.params.id);
+    if (!incident) return res.status(404).json({ error: 'Incident not found' });
+    res.json(incident);
+  } catch (error) {
+    console.error('Error fetching hotspot:', error);
+    res.status(500).json({ error: 'Failed to fetch hotspot' });
+  }
+});
+
+// Get historical incidents (including resolved)
+app.get('/api/hotspots/history', async (req, res) => {
+  try {
+    const days = parseInt(req.query.days as string) || 7;
+    const historical = await getHistoricalHotspotsFromDb(days);
+
+    res.json({
+      period_days: days,
+      total_incidents: historical.length,
+      by_type: {
+        riot: historical.filter(h => h.type === 'riot').length,
+        protest: historical.filter(h => h.type === 'protest').length,
+        march: historical.filter(h => h.type === 'march').length,
+        disorder: historical.filter(h => h.type === 'disorder').length,
+        demonstration: historical.filter(h => h.type === 'demonstration').length,
+        flashpoint: historical.filter(h => h.type === 'flashpoint').length
+      },
+      asylum_related: historical.filter(h => h.related_to_asylum).length,
+      incidents: historical
+    });
+  } catch (error) {
+    console.error('Error fetching historical hotspots:', error);
+    res.status(500).json({ error: 'Failed to fetch historical hotspots' });
+  }
+});
+
+// Get incidents near a location
+app.get('/api/hotspots/near/:lat/:lng', async (req, res) => {
+  try {
+    const lat = parseFloat(req.params.lat);
+    const lng = parseFloat(req.params.lng);
+    const radiusKm = parseFloat(req.query.radius as string) || 50;
+
+    const nearby = await getHotspotsNearLocationFromDb(lat, lng, radiusKm);
+
+    res.json({
+      center: { lat, lng },
+      radius_km: radiusKm,
+      incidents: nearby
+    });
+  } catch (error) {
+    console.error('Error fetching nearby hotspots:', error);
+    res.status(500).json({ error: 'Failed to fetch nearby hotspots' });
+  }
+});
+
+// Manual incident report (for moderators/journalists)
+app.post('/api/hotspots', async (req, res) => {
+  try {
+    const { title, type, status, location, description, sources, police_present, injuries_reported, arrests_reported, related_to_asylum } = req.body;
+
+    if (!title || !location?.lat || !location?.lng) {
+      return res.status(400).json({ error: 'Missing required fields: title, location.lat, location.lng' });
+    }
+
+    const incident: HotspotIncident = {
+      id: generateIncidentId(),
+      title,
+      type: type || 'protest',
+      status: status || 'AMBER',
+      location: {
+        name: location.name || 'Unknown',
+        lat: location.lat,
+        lng: location.lng,
+        region: location.region
+      },
+      description: description || '',
+      started_at: new Date().toISOString(),
+      last_updated: new Date().toISOString(),
+      sources: sources || [{ name: 'Manual report', timestamp: new Date().toISOString() }],
+      police_present: police_present || false,
+      injuries_reported: injuries_reported || false,
+      arrests_reported: arrests_reported || 0,
+      related_to_asylum: related_to_asylum || false,
+      auto_detected: false,
+      verified: false,
+      timeline: [{ time: new Date().toISOString(), update: 'Incident manually reported', status: status || 'AMBER' }]
+    };
+
+    await insertHotspotToDb(incident);
+    res.status(201).json({ message: 'Incident created', incident });
+  } catch (error) {
+    console.error('Error creating hotspot:', error);
+    res.status(500).json({ error: 'Failed to create hotspot' });
+  }
+});
+
+// Update incident status (for moderators)
+app.patch('/api/hotspots/:id', async (req, res) => {
+  try {
+    const incident = await getHotspotByIdFromDb(req.params.id);
+    if (!incident) return res.status(404).json({ error: 'Incident not found' });
+
+    const { status, update_note, verified, arrests_reported, injuries_reported } = req.body;
+
+    const updates: Partial<HotspotIncident> = {};
+
+    if (status && ['RED', 'AMBER', 'YELLOW', 'NEUTRAL'].includes(status)) {
+      updates.status = status;
+      updates.timeline = [
+        ...incident.timeline,
+        {
+          time: new Date().toISOString(),
+          update: update_note || `Status changed to ${status}`,
+          status
+        }
+      ];
+    }
+
+    if (verified !== undefined) updates.verified = verified;
+    if (arrests_reported !== undefined) updates.arrests_reported = arrests_reported;
+    if (injuries_reported !== undefined) updates.injuries_reported = injuries_reported;
+
+    const updated = await updateHotspotInDb(req.params.id, updates);
+    if (!updated) return res.status(500).json({ error: 'Failed to update incident' });
+
+    res.json({ message: 'Incident updated', incident: updated });
+  } catch (error) {
+    console.error('Error updating hotspot:', error);
+    res.status(500).json({ error: 'Failed to update hotspot' });
+  }
+});
+
+// Get map GeoJSON for easy frontend integration
+app.get('/api/hotspots/geojson', async (req, res) => {
+  try {
+    await detectIncidentsFromNews();
+    const active = await getActiveHotspotsFromDb();
+
+    const geojson = {
+      type: 'FeatureCollection',
+      generated_at: new Date().toISOString(),
+      features: active.map(h => ({
+        type: 'Feature',
+        id: h.id,
+        geometry: {
+          type: 'Point',
+          coordinates: [h.location.lng, h.location.lat]
+        },
+        properties: {
+          id: h.id,
+          title: h.title,
+          type: h.type,
+          status: h.status,
+          color: h.status === 'RED' ? '#ef4444' : h.status === 'AMBER' ? '#f59e0b' : '#eab308',
+          location_name: h.location.name,
+          region: h.location.region,
+          started_at: h.started_at,
+          last_updated: h.last_updated,
+          related_to_asylum: h.related_to_asylum,
+          verified: h.verified
+        }
+      }))
+    };
+
+    res.json(geojson);
+  } catch (error) {
+    console.error('Error fetching GeoJSON:', error);
+    res.status(500).json({ error: 'Failed to fetch GeoJSON' });
+  }
 });
 
 // Hotspot statistics
-app.get('/api/hotspots/stats', (req, res) => {
-  const last24h = hotspotIncidents.filter(h =>
-    (Date.now() - new Date(h.started_at).getTime()) < 24 * 60 * 60 * 1000
-  );
-  const last7d = hotspotIncidents.filter(h =>
-    (Date.now() - new Date(h.started_at).getTime()) < 7 * 24 * 60 * 60 * 1000
-  );
+app.get('/api/hotspots/stats', async (req, res) => {
+  try {
+    const allHotspots = await getHotspotsFromDb();
+    const activeHotspots = await getActiveHotspotsFromDb();
 
-  res.json({
-    current_active: getActiveHotspots().length,
-    last_24_hours: last24h.length,
-    last_7_days: last7d.length,
-    total_recorded: hotspotIncidents.length,
-    asylum_related_pct: hotspotIncidents.length > 0
-      ? Math.round((hotspotIncidents.filter(h => h.related_to_asylum).length / hotspotIncidents.length) * 100)
-      : 0,
-    by_region: Object.entries(
-      hotspotIncidents.reduce((acc, h) => {
-        const region = h.location.region || 'Unknown';
-        acc[region] = (acc[region] || 0) + 1;
-        return acc;
-      }, {} as Record<string, number>)
-    ).sort((a, b) => b[1] - a[1])
-  });
+    const last24h = allHotspots.filter(h =>
+      (Date.now() - new Date(h.started_at).getTime()) < 24 * 60 * 60 * 1000
+    );
+    const last7d = allHotspots.filter(h =>
+      (Date.now() - new Date(h.started_at).getTime()) < 7 * 24 * 60 * 60 * 1000
+    );
+
+    res.json({
+      current_active: activeHotspots.length,
+      last_24_hours: last24h.length,
+      last_7_days: last7d.length,
+      total_recorded: allHotspots.length,
+      asylum_related_pct: allHotspots.length > 0
+        ? Math.round((allHotspots.filter(h => h.related_to_asylum).length / allHotspots.length) * 100)
+        : 0,
+      by_region: Object.entries(
+        allHotspots.reduce((acc, h) => {
+          const region = h.location.region || 'Unknown';
+          acc[region] = (acc[region] || 0) + 1;
+          return acc;
+        }, {} as Record<string, number>)
+      ).sort((a, b) => b[1] - a[1])
+    });
+  } catch (error) {
+    console.error('Error fetching hotspot stats:', error);
+    res.status(500).json({ error: 'Failed to fetch hotspot stats' });
+  }
 });
 
 // ============================================================================

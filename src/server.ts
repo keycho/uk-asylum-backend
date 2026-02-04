@@ -2227,6 +2227,330 @@ const investigationsData = [
   }
 ];
 
+// ============================================================================
+// LIVE HOTSPOT MAP SYSTEM (V14)
+// ============================================================================
+
+interface HotspotIncident {
+  id: string;
+  title: string;
+  type: 'riot' | 'protest' | 'march' | 'disorder' | 'flashpoint' | 'demonstration';
+  status: 'RED' | 'AMBER' | 'YELLOW' | 'NEUTRAL';
+  location: {
+    name: string;
+    lat: number;
+    lng: number;
+    region?: string;
+  };
+  description: string;
+  started_at: string;
+  last_updated: string;
+  sources: Array<{ name: string; url?: string; timestamp: string }>;
+  crowd_estimate?: string;
+  police_present: boolean;
+  injuries_reported: boolean;
+  arrests_reported: number;
+  related_to_asylum: boolean;
+  auto_detected: boolean;
+  verified: boolean;
+  timeline: Array<{ time: string; update: string; status: string }>;
+}
+
+// UK location geocoding for incident mapping
+const UK_LOCATIONS: Record<string, { lat: number; lng: number; region: string }> = {
+  // Major cities
+  'london': { lat: 51.5074, lng: -0.1278, region: 'London' },
+  'westminster': { lat: 51.4975, lng: -0.1357, region: 'London' },
+  'whitehall': { lat: 51.5033, lng: -0.1276, region: 'London' },
+  'downing street': { lat: 51.5034, lng: -0.1276, region: 'London' },
+  'trafalgar square': { lat: 51.5080, lng: -0.1281, region: 'London' },
+  'parliament square': { lat: 51.5005, lng: -0.1246, region: 'London' },
+  'birmingham': { lat: 52.4862, lng: -1.8904, region: 'West Midlands' },
+  'manchester': { lat: 53.4808, lng: -2.2426, region: 'North West' },
+  'liverpool': { lat: 53.4084, lng: -2.9916, region: 'North West' },
+  'leeds': { lat: 53.8008, lng: -1.5491, region: 'Yorkshire' },
+  'sheffield': { lat: 53.3811, lng: -1.4701, region: 'Yorkshire' },
+  'bristol': { lat: 51.4545, lng: -2.5879, region: 'South West' },
+  'newcastle': { lat: 54.9783, lng: -1.6178, region: 'North East' },
+  'nottingham': { lat: 52.9548, lng: -1.1581, region: 'East Midlands' },
+  'glasgow': { lat: 55.8642, lng: -4.2518, region: 'Scotland' },
+  'edinburgh': { lat: 55.9533, lng: -3.1883, region: 'Scotland' },
+  'cardiff': { lat: 51.4816, lng: -3.1791, region: 'Wales' },
+  'belfast': { lat: 54.5973, lng: -5.9301, region: 'Northern Ireland' },
+  'dover': { lat: 51.1279, lng: 1.3134, region: 'South East' },
+  'folkestone': { lat: 51.0814, lng: 1.1664, region: 'South East' },
+  'middlesbrough': { lat: 54.5742, lng: -1.2350, region: 'North East' },
+  'rotherham': { lat: 53.4326, lng: -1.3635, region: 'Yorkshire' },
+  'rochdale': { lat: 53.6097, lng: -2.1561, region: 'North West' },
+  'burnley': { lat: 53.7890, lng: -2.2394, region: 'North West' },
+  'blackburn': { lat: 53.7501, lng: -2.4849, region: 'North West' },
+  'bolton': { lat: 53.5769, lng: -2.4282, region: 'North West' },
+  'oldham': { lat: 53.5409, lng: -2.1114, region: 'North West' },
+  'stoke': { lat: 53.0027, lng: -2.1794, region: 'West Midlands' },
+  'hull': { lat: 53.7676, lng: -0.3274, region: 'Yorkshire' },
+  'plymouth': { lat: 50.3755, lng: -4.1427, region: 'South West' },
+  'southport': { lat: 53.6475, lng: -3.0053, region: 'North West' },
+  'hartlepool': { lat: 54.6863, lng: -1.2129, region: 'North East' },
+  'sunderland': { lat: 54.9069, lng: -1.3838, region: 'North East' },
+  'croydon': { lat: 51.3762, lng: -0.0982, region: 'London' },
+  'peckham': { lat: 51.4693, lng: -0.0700, region: 'London' },
+  'brixton': { lat: 51.4613, lng: -0.1156, region: 'London' },
+  'tottenham': { lat: 51.5975, lng: -0.0681, region: 'London' },
+  'woolwich': { lat: 51.4906, lng: 0.0630, region: 'London' },
+  // Hotels/IRCs often targeted
+  'harmondsworth': { lat: 51.4875, lng: -0.4472, region: 'London' },
+  'manston': { lat: 51.3461, lng: 1.3464, region: 'South East' },
+  'bibby stockholm': { lat: 50.6139, lng: -2.4474, region: 'South West' },
+  'portland': { lat: 50.5514, lng: -2.4478, region: 'South West' },
+};
+
+// Keywords for detecting unrest in news
+const UNREST_KEYWORDS = {
+  high_severity: ['riot', 'rioting', 'rioters', 'violence', 'violent', 'attack', 'looting', 'arson', 'petrol bomb', 'molotov'],
+  medium_severity: ['protest', 'protesters', 'demonstration', 'clash', 'clashes', 'disorder', 'disturbance', 'unrest'],
+  low_severity: ['march', 'rally', 'gathering', 'vigil', 'picket', 'blockade'],
+  asylum_related: ['asylum', 'migrant', 'migration', 'immigrant', 'refugee', 'hotel', 'small boat', 'channel crossing', 'deportation']
+};
+
+// In-memory store for incidents
+let hotspotIncidents: HotspotIncident[] = [];
+
+// Status decay timing (ms)
+const STATUS_DECAY = {
+  RED_TO_AMBER: 2 * 60 * 60 * 1000,    // 2 hours
+  AMBER_TO_YELLOW: 6 * 60 * 60 * 1000,  // 6 hours
+  YELLOW_TO_NEUTRAL: 24 * 60 * 60 * 1000, // 24 hours
+};
+
+function generateIncidentId(): string {
+  return 'INC-' + Date.now().toString(36).toUpperCase() + Math.random().toString(36).substring(2, 5).toUpperCase();
+}
+
+function extractLocation(text: string): { name: string; lat: number; lng: number; region: string } | null {
+  const lowerText = text.toLowerCase();
+  for (const [place, coords] of Object.entries(UK_LOCATIONS)) {
+    if (lowerText.includes(place)) {
+      return { name: place.charAt(0).toUpperCase() + place.slice(1), ...coords };
+    }
+  }
+  return null;
+}
+
+function detectSeverity(text: string): 'RED' | 'AMBER' | 'YELLOW' {
+  const lowerText = text.toLowerCase();
+  if (UNREST_KEYWORDS.high_severity.some(kw => lowerText.includes(kw))) return 'RED';
+  if (UNREST_KEYWORDS.medium_severity.some(kw => lowerText.includes(kw))) return 'AMBER';
+  return 'YELLOW';
+}
+
+function detectIncidentType(text: string): HotspotIncident['type'] {
+  const lowerText = text.toLowerCase();
+  if (lowerText.includes('riot')) return 'riot';
+  if (lowerText.includes('march')) return 'march';
+  if (lowerText.includes('demonstration')) return 'demonstration';
+  if (lowerText.includes('disorder') || lowerText.includes('disturbance')) return 'disorder';
+  if (lowerText.includes('flashpoint')) return 'flashpoint';
+  return 'protest';
+}
+
+function isAsylumRelated(text: string): boolean {
+  const lowerText = text.toLowerCase();
+  return UNREST_KEYWORDS.asylum_related.some(kw => lowerText.includes(kw));
+}
+
+// Auto-decay incident statuses
+function decayIncidentStatuses(): void {
+  const now = Date.now();
+  for (const incident of hotspotIncidents) {
+    const lastUpdate = new Date(incident.last_updated).getTime();
+    const elapsed = now - lastUpdate;
+
+    if (incident.status === 'RED' && elapsed > STATUS_DECAY.RED_TO_AMBER) {
+      incident.status = 'AMBER';
+      incident.timeline.push({ time: new Date().toISOString(), update: 'Auto-decayed to AMBER (no updates)', status: 'AMBER' });
+    } else if (incident.status === 'AMBER' && elapsed > STATUS_DECAY.AMBER_TO_YELLOW) {
+      incident.status = 'YELLOW';
+      incident.timeline.push({ time: new Date().toISOString(), update: 'Auto-decayed to YELLOW (cooling)', status: 'YELLOW' });
+    } else if (incident.status === 'YELLOW' && elapsed > STATUS_DECAY.YELLOW_TO_NEUTRAL) {
+      incident.status = 'NEUTRAL';
+      incident.timeline.push({ time: new Date().toISOString(), update: 'Auto-decayed to NEUTRAL (resolved)', status: 'NEUTRAL' });
+    }
+  }
+}
+
+// Process news items for potential incidents
+async function detectIncidentsFromNews(): Promise<number> {
+  const news = await aggregateNews();
+  let newIncidents = 0;
+
+  for (const item of news) {
+    const text = `${item.title} ${item.summary}`;
+    const lowerText = text.toLowerCase();
+
+    // Check if it's about unrest
+    const hasUnrestKeyword = [
+      ...UNREST_KEYWORDS.high_severity,
+      ...UNREST_KEYWORDS.medium_severity,
+      ...UNREST_KEYWORDS.low_severity
+    ].some(kw => lowerText.includes(kw));
+
+    if (!hasUnrestKeyword) continue;
+
+    // Extract location
+    const location = extractLocation(text);
+    if (!location) continue;
+
+    // Check if we already have this incident (same location, last 24h)
+    const existingIncident = hotspotIncidents.find(inc =>
+      inc.location.name.toLowerCase() === location.name.toLowerCase() &&
+      (Date.now() - new Date(inc.started_at).getTime()) < 24 * 60 * 60 * 1000
+    );
+
+    if (existingIncident) {
+      // Update existing incident
+      existingIncident.sources.push({ name: item.source, url: item.url, timestamp: item.published });
+      existingIncident.last_updated = new Date().toISOString();
+      const newSeverity = detectSeverity(text);
+      if (newSeverity === 'RED' && existingIncident.status !== 'RED') {
+        existingIncident.status = 'RED';
+        existingIncident.timeline.push({ time: new Date().toISOString(), update: `Escalated: ${item.title}`, status: 'RED' });
+      }
+    } else {
+      // Create new incident
+      const incident: HotspotIncident = {
+        id: generateIncidentId(),
+        title: item.title,
+        type: detectIncidentType(text),
+        status: detectSeverity(text),
+        location,
+        description: item.summary,
+        started_at: item.published,
+        last_updated: new Date().toISOString(),
+        sources: [{ name: item.source, url: item.url, timestamp: item.published }],
+        police_present: lowerText.includes('police'),
+        injuries_reported: lowerText.includes('injur'),
+        arrests_reported: 0,
+        related_to_asylum: isAsylumRelated(text),
+        auto_detected: true,
+        verified: false,
+        timeline: [{ time: item.published, update: 'Incident detected from news', status: detectSeverity(text) }]
+      };
+      hotspotIncidents.unshift(incident);
+      newIncidents++;
+    }
+  }
+
+  // Also check community tips for incidents
+  for (const tip of communityTips) {
+    if (tip.type !== 'other' && tip.location?.lat && tip.location?.lng) {
+      const lowerContent = tip.content.toLowerCase();
+      const hasUnrestKeyword = [
+        ...UNREST_KEYWORDS.high_severity,
+        ...UNREST_KEYWORDS.medium_severity,
+        ...UNREST_KEYWORDS.low_severity
+      ].some(kw => lowerContent.includes(kw));
+
+      if (hasUnrestKeyword) {
+        const existingIncident = hotspotIncidents.find(inc =>
+          Math.abs(inc.location.lat - (tip.location?.lat || 0)) < 0.01 &&
+          Math.abs(inc.location.lng - (tip.location?.lng || 0)) < 0.01 &&
+          (Date.now() - new Date(inc.started_at).getTime()) < 24 * 60 * 60 * 1000
+        );
+
+        if (!existingIncident && tip.location.lat && tip.location.lng) {
+          const incident: HotspotIncident = {
+            id: generateIncidentId(),
+            title: tip.title,
+            type: detectIncidentType(tip.content),
+            status: detectSeverity(tip.content),
+            location: {
+              name: tip.location.name || tip.location.local_authority || 'Unknown',
+              lat: tip.location.lat,
+              lng: tip.location.lng,
+              region: tip.location.local_authority
+            },
+            description: tip.content,
+            started_at: tip.submitted_at,
+            last_updated: new Date().toISOString(),
+            sources: [{ name: 'Community Report', timestamp: tip.submitted_at }],
+            police_present: tip.content.toLowerCase().includes('police'),
+            injuries_reported: false,
+            arrests_reported: 0,
+            related_to_asylum: isAsylumRelated(tip.content),
+            auto_detected: true,
+            verified: tip.verified,
+            timeline: [{ time: tip.submitted_at, update: 'Incident reported by community', status: detectSeverity(tip.content) }]
+          };
+          hotspotIncidents.unshift(incident);
+          newIncidents++;
+        }
+      }
+    }
+  }
+
+  return newIncidents;
+}
+
+// Get active incidents for map
+function getActiveHotspots(): HotspotIncident[] {
+  decayIncidentStatuses();
+  return hotspotIncidents
+    .filter(inc => inc.status !== 'NEUTRAL')
+    .sort((a, b) => {
+      const statusOrder = { RED: 0, AMBER: 1, YELLOW: 2, NEUTRAL: 3 };
+      return statusOrder[a.status] - statusOrder[b.status];
+    });
+}
+
+// Seed with recent historical events for demo
+function seedHistoricalIncidents(): void {
+  const seedData: Partial<HotspotIncident>[] = [
+    {
+      title: 'Anti-immigration protest outside asylum hotel',
+      type: 'protest',
+      status: 'YELLOW',
+      location: UK_LOCATIONS['rotherham'],
+      description: 'Approximately 200 protesters gathered outside Holiday Inn housing asylum seekers. Police maintaining cordon.',
+      related_to_asylum: true
+    },
+    {
+      title: 'Counter-demonstration in city centre',
+      type: 'demonstration',
+      status: 'YELLOW',
+      location: UK_LOCATIONS['birmingham'],
+      description: 'Stand Up To Racism counter-protest. Peaceful gathering of around 500.',
+      related_to_asylum: true
+    }
+  ];
+
+  for (const seed of seedData) {
+    if (seed.location) {
+      const incident: HotspotIncident = {
+        id: generateIncidentId(),
+        title: seed.title || '',
+        type: seed.type || 'protest',
+        status: seed.status || 'YELLOW',
+        location: { name: Object.keys(UK_LOCATIONS).find(k => UK_LOCATIONS[k] === seed.location) || 'Unknown', ...seed.location },
+        description: seed.description || '',
+        started_at: new Date(Date.now() - 12 * 60 * 60 * 1000).toISOString(), // 12 hours ago
+        last_updated: new Date(Date.now() - 6 * 60 * 60 * 1000).toISOString(), // 6 hours ago
+        sources: [{ name: 'Historical record', timestamp: new Date().toISOString() }],
+        police_present: true,
+        injuries_reported: false,
+        arrests_reported: 0,
+        related_to_asylum: seed.related_to_asylum || false,
+        auto_detected: false,
+        verified: true,
+        timeline: [{ time: new Date(Date.now() - 12 * 60 * 60 * 1000).toISOString(), update: 'Incident began', status: 'AMBER' }]
+      };
+      hotspotIncidents.push(incident);
+    }
+  }
+}
+
+// Initialize on startup
+seedHistoricalIncidents();
+
 function calculateAreaCost(hotel: number, dispersed: number) {
   const dailyCost = (hotel * 145) + (dispersed * 52);
   const annualCost = dailyCost * 365;
@@ -3017,6 +3341,225 @@ app.post('/api/alerts/subscribe', (req, res) => {
 });
 
 // ============================================================================
+// API ENDPOINTS - LIVE HOTSPOT MAP (V14)
+// ============================================================================
+
+// Get all active hotspots for map display
+app.get('/api/hotspots', async (req, res) => {
+  // Refresh from news sources
+  await detectIncidentsFromNews();
+
+  const active = getActiveHotspots();
+  const asylumOnly = req.query.asylum === 'true';
+
+  const filtered = asylumOnly ? active.filter(h => h.related_to_asylum) : active;
+
+  res.json({
+    last_updated: new Date().toISOString(),
+    auto_refresh_seconds: 300, // Suggest frontend refresh every 5 mins
+    total_active: filtered.length,
+    by_status: {
+      RED: filtered.filter(h => h.status === 'RED').length,
+      AMBER: filtered.filter(h => h.status === 'AMBER').length,
+      YELLOW: filtered.filter(h => h.status === 'YELLOW').length
+    },
+    incidents: filtered.map(h => ({
+      id: h.id,
+      title: h.title,
+      type: h.type,
+      status: h.status,
+      location: h.location,
+      started_at: h.started_at,
+      last_updated: h.last_updated,
+      related_to_asylum: h.related_to_asylum,
+      verified: h.verified,
+      source_count: h.sources.length
+    })),
+    legend: {
+      RED: 'Active unrest - violence or significant disorder ongoing',
+      AMBER: 'Escalating or recent - situation tense, monitoring',
+      YELLOW: 'Cooling - incident winding down or minor',
+      NEUTRAL: 'Resolved - included in historical record only'
+    }
+  });
+});
+
+// Get single incident with full details
+app.get('/api/hotspots/:id', (req, res) => {
+  const incident = hotspotIncidents.find(h => h.id === req.params.id);
+  if (!incident) return res.status(404).json({ error: 'Incident not found' });
+  res.json(incident);
+});
+
+// Get historical incidents (including resolved)
+app.get('/api/hotspots/history', (req, res) => {
+  const days = parseInt(req.query.days as string) || 7;
+  const cutoff = Date.now() - (days * 24 * 60 * 60 * 1000);
+
+  const historical = hotspotIncidents.filter(h =>
+    new Date(h.started_at).getTime() > cutoff
+  );
+
+  res.json({
+    period_days: days,
+    total_incidents: historical.length,
+    by_type: {
+      riot: historical.filter(h => h.type === 'riot').length,
+      protest: historical.filter(h => h.type === 'protest').length,
+      march: historical.filter(h => h.type === 'march').length,
+      disorder: historical.filter(h => h.type === 'disorder').length,
+      demonstration: historical.filter(h => h.type === 'demonstration').length,
+      flashpoint: historical.filter(h => h.type === 'flashpoint').length
+    },
+    asylum_related: historical.filter(h => h.related_to_asylum).length,
+    incidents: historical
+  });
+});
+
+// Get incidents near a location
+app.get('/api/hotspots/near/:lat/:lng', (req, res) => {
+  const lat = parseFloat(req.params.lat);
+  const lng = parseFloat(req.params.lng);
+  const radiusKm = parseFloat(req.query.radius as string) || 50;
+
+  const nearby = hotspotIncidents.filter(h => {
+    const distance = Math.sqrt(
+      Math.pow((h.location.lat - lat) * 111, 2) +
+      Math.pow((h.location.lng - lng) * 74, 2)
+    );
+    return distance <= radiusKm;
+  });
+
+  res.json({
+    center: { lat, lng },
+    radius_km: radiusKm,
+    incidents: nearby
+  });
+});
+
+// Manual incident report (for moderators/journalists)
+app.post('/api/hotspots', (req, res) => {
+  const { title, type, status, location, description, sources, police_present, injuries_reported, arrests_reported, related_to_asylum } = req.body;
+
+  if (!title || !location?.lat || !location?.lng) {
+    return res.status(400).json({ error: 'Missing required fields: title, location.lat, location.lng' });
+  }
+
+  const incident: HotspotIncident = {
+    id: generateIncidentId(),
+    title,
+    type: type || 'protest',
+    status: status || 'AMBER',
+    location: {
+      name: location.name || 'Unknown',
+      lat: location.lat,
+      lng: location.lng,
+      region: location.region
+    },
+    description: description || '',
+    started_at: new Date().toISOString(),
+    last_updated: new Date().toISOString(),
+    sources: sources || [{ name: 'Manual report', timestamp: new Date().toISOString() }],
+    police_present: police_present || false,
+    injuries_reported: injuries_reported || false,
+    arrests_reported: arrests_reported || 0,
+    related_to_asylum: related_to_asylum || false,
+    auto_detected: false,
+    verified: false,
+    timeline: [{ time: new Date().toISOString(), update: 'Incident manually reported', status: status || 'AMBER' }]
+  };
+
+  hotspotIncidents.unshift(incident);
+  res.status(201).json({ message: 'Incident created', incident });
+});
+
+// Update incident status (for moderators)
+app.patch('/api/hotspots/:id', (req, res) => {
+  const incident = hotspotIncidents.find(h => h.id === req.params.id);
+  if (!incident) return res.status(404).json({ error: 'Incident not found' });
+
+  const { status, update_note, verified, arrests_reported, injuries_reported } = req.body;
+
+  if (status && ['RED', 'AMBER', 'YELLOW', 'NEUTRAL'].includes(status)) {
+    incident.status = status;
+    incident.timeline.push({
+      time: new Date().toISOString(),
+      update: update_note || `Status changed to ${status}`,
+      status
+    });
+  }
+
+  if (verified !== undefined) incident.verified = verified;
+  if (arrests_reported !== undefined) incident.arrests_reported = arrests_reported;
+  if (injuries_reported !== undefined) incident.injuries_reported = injuries_reported;
+
+  incident.last_updated = new Date().toISOString();
+
+  res.json({ message: 'Incident updated', incident });
+});
+
+// Get map GeoJSON for easy frontend integration
+app.get('/api/hotspots/geojson', async (req, res) => {
+  await detectIncidentsFromNews();
+  const active = getActiveHotspots();
+
+  const geojson = {
+    type: 'FeatureCollection',
+    generated_at: new Date().toISOString(),
+    features: active.map(h => ({
+      type: 'Feature',
+      id: h.id,
+      geometry: {
+        type: 'Point',
+        coordinates: [h.location.lng, h.location.lat]
+      },
+      properties: {
+        id: h.id,
+        title: h.title,
+        type: h.type,
+        status: h.status,
+        color: h.status === 'RED' ? '#ef4444' : h.status === 'AMBER' ? '#f59e0b' : '#eab308',
+        location_name: h.location.name,
+        region: h.location.region,
+        started_at: h.started_at,
+        last_updated: h.last_updated,
+        related_to_asylum: h.related_to_asylum,
+        verified: h.verified
+      }
+    }))
+  };
+
+  res.json(geojson);
+});
+
+// Hotspot statistics
+app.get('/api/hotspots/stats', (req, res) => {
+  const last24h = hotspotIncidents.filter(h =>
+    (Date.now() - new Date(h.started_at).getTime()) < 24 * 60 * 60 * 1000
+  );
+  const last7d = hotspotIncidents.filter(h =>
+    (Date.now() - new Date(h.started_at).getTime()) < 7 * 24 * 60 * 60 * 1000
+  );
+
+  res.json({
+    current_active: getActiveHotspots().length,
+    last_24_hours: last24h.length,
+    last_7_days: last7d.length,
+    total_recorded: hotspotIncidents.length,
+    asylum_related_pct: hotspotIncidents.length > 0
+      ? Math.round((hotspotIncidents.filter(h => h.related_to_asylum).length / hotspotIncidents.length) * 100)
+      : 0,
+    by_region: Object.entries(
+      hotspotIncidents.reduce((acc, h) => {
+        const region = h.location.region || 'Unknown';
+        acc[region] = (acc[region] || 0) + 1;
+        return acc;
+      }, {} as Record<string, number>)
+    ).sort((a, b) => b[1] - a[1])
+  });
+});
+
+// ============================================================================
 // API ENDPOINTS - SUMMARY/DASHBOARD
 // ============================================================================
 
@@ -3081,16 +3624,16 @@ app.get('/api/dashboard/summary', async (req, res) => {
 // ============================================================================
 
 app.get('/health', (req, res) => {
-  res.json({ 
-    status: 'healthy', 
-    version: '13.0.0',
+  res.json({
+    status: 'healthy',
+    version: '14.0.0',
     features: [
       'france_returns_deal', 'returns_data', 'net_migration', 'appeals_backlog',
       'channel_deaths', 'enforcement_scorecard', 'irc_cameras', 'cost_calculator',
-      'live_scraping', 'news_aggregation', 'parliamentary', 'foi_tracking', 
-      'community_intel', 'data_sources'
+      'live_scraping', 'news_aggregation', 'parliamentary', 'foi_tracking',
+      'community_intel', 'data_sources', 'live_hotspot_map'
     ],
-    timestamp: new Date().toISOString() 
+    timestamp: new Date().toISOString()
   });
 });
 

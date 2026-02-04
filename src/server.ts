@@ -2504,12 +2504,19 @@ function getActiveHotspots(): HotspotIncident[] {
 
 // Seed with recent historical events for demo
 function seedHistoricalIncidents(): void {
-  const seedData: Partial<HotspotIncident>[] = [
+  const seedData: Array<{
+    title: string;
+    type: HotspotIncident['type'];
+    status: HotspotIncident['status'];
+    location: { name: string; lat: number; lng: number; region: string };
+    description: string;
+    related_to_asylum: boolean;
+  }> = [
     {
       title: 'Anti-immigration protest outside asylum hotel',
       type: 'protest',
       status: 'YELLOW',
-      location: UK_LOCATIONS['rotherham'],
+      location: { name: 'Rotherham', ...UK_LOCATIONS['rotherham'] },
       description: 'Approximately 200 protesters gathered outside Holiday Inn housing asylum seekers. Police maintaining cordon.',
       related_to_asylum: true
     },
@@ -2517,34 +2524,32 @@ function seedHistoricalIncidents(): void {
       title: 'Counter-demonstration in city centre',
       type: 'demonstration',
       status: 'YELLOW',
-      location: UK_LOCATIONS['birmingham'],
+      location: { name: 'Birmingham', ...UK_LOCATIONS['birmingham'] },
       description: 'Stand Up To Racism counter-protest. Peaceful gathering of around 500.',
       related_to_asylum: true
     }
   ];
 
   for (const seed of seedData) {
-    if (seed.location) {
-      const incident: HotspotIncident = {
-        id: generateIncidentId(),
-        title: seed.title || '',
-        type: seed.type || 'protest',
-        status: seed.status || 'YELLOW',
-        location: { name: Object.keys(UK_LOCATIONS).find(k => UK_LOCATIONS[k] === seed.location) || 'Unknown', ...seed.location },
-        description: seed.description || '',
-        started_at: new Date(Date.now() - 12 * 60 * 60 * 1000).toISOString(), // 12 hours ago
-        last_updated: new Date(Date.now() - 6 * 60 * 60 * 1000).toISOString(), // 6 hours ago
-        sources: [{ name: 'Historical record', timestamp: new Date().toISOString() }],
-        police_present: true,
-        injuries_reported: false,
-        arrests_reported: 0,
-        related_to_asylum: seed.related_to_asylum || false,
-        auto_detected: false,
-        verified: true,
-        timeline: [{ time: new Date(Date.now() - 12 * 60 * 60 * 1000).toISOString(), update: 'Incident began', status: 'AMBER' }]
-      };
-      hotspotIncidents.push(incident);
-    }
+    const incident: HotspotIncident = {
+      id: generateIncidentId(),
+      title: seed.title,
+      type: seed.type,
+      status: seed.status,
+      location: seed.location,
+      description: seed.description,
+      started_at: new Date(Date.now() - 12 * 60 * 60 * 1000).toISOString(), // 12 hours ago
+      last_updated: new Date(Date.now() - 6 * 60 * 60 * 1000).toISOString(), // 6 hours ago
+      sources: [{ name: 'Historical record', timestamp: new Date().toISOString() }],
+      police_present: true,
+      injuries_reported: false,
+      arrests_reported: 0,
+      related_to_asylum: seed.related_to_asylum,
+      auto_detected: false,
+      verified: true,
+      timeline: [{ time: new Date(Date.now() - 12 * 60 * 60 * 1000).toISOString(), update: 'Incident began', status: 'AMBER' }]
+    };
+    hotspotIncidents.push(incident);
   }
 }
 

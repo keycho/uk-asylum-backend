@@ -2906,6 +2906,33 @@ app.get('/api/live/news', async (req, res) => {
   }
 });
 
+// Force refresh news from sources (clears cache and re-fetches)
+app.post('/api/live/news/refresh', async (req, res) => {
+  try {
+    // Clear the news cache to force fresh fetch
+    cache.delete('news_feed');
+
+    // Fetch fresh news
+    const news = await aggregateNews();
+
+    res.json({
+      success: true,
+      message: 'News refreshed from sources',
+      count: news.length,
+      sources: ['The Guardian', 'BBC News'],
+      refreshed_at: new Date().toISOString(),
+      articles: news
+    });
+  } catch (error) {
+    console.error('News refresh error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to refresh news',
+      message: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
+});
+
 app.get('/api/live/parliamentary', async (req, res) => {
   const items = await getParliamentaryActivity();
   res.json(items);

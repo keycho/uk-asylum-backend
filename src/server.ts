@@ -2067,6 +2067,35 @@ const detentionData = {
     source: 'HM Prison and Probation Service'
   }
 };
+const ageDisputesData = {
+  last_updated: '2025-09-30',
+  source: 'Home Office Immigration Statistics',
+  
+  current_year: {
+    total_disputes: 2847,
+    resolved_as_adult: 1423,
+    resolved_as_child: 892,
+    pending: 532,
+    adult_rate_pct: 61.5
+  },
+  
+  historical: [
+    { year: 2020, disputes: 1200, adult_pct: 54 },
+    { year: 2021, disputes: 1850, adult_pct: 57 },
+    { year: 2022, disputes: 2340, adult_pct: 59 },
+    { year: 2023, disputes: 2650, adult_pct: 60 },
+    { year: 2024, disputes: 2780, adult_pct: 61 },
+    { year: 2025, disputes: 2847, adult_pct: 61.5 },
+  ],
+  
+  by_nationality: [
+    { nationality: 'Afghanistan', disputes: 680, adult_pct: 58 },
+    { nationality: 'Iran', disputes: 420, adult_pct: 65 },
+    { nationality: 'Eritrea', disputes: 380, adult_pct: 52 },
+    { nationality: 'Sudan', disputes: 340, adult_pct: 59 },
+    { nationality: 'Vietnam', disputes: 290, adult_pct: 72 },
+  ]
+};
 
 // ============================================================================
 // INVESTIGATIONS DATA (V13)
@@ -3311,6 +3340,15 @@ app.get('/api/live/small-boats', async (req, res) => {
   res.json(data);
 });
 
+app.get('/api/small-boats/daily', async (req, res) => {
+  const data = await scrapeSmallBoatsData();
+  res.json({
+    last_7_days: data.last_7_days,
+    ytd_total: data.ytd_total,
+    last_updated: data.last_updated
+  });
+});
+
 app.get('/api/live/news', async (req, res) => {
   const news = await aggregateNews();
   const category = req.query.category as string;
@@ -3445,7 +3483,20 @@ app.get('/api/spending/rwanda', (req, res) => {
     }
   });
 });
+app.get('/api/spending/unit-costs', (req, res) => {
+  res.json(unitCostBreakdown);
+});
 
+app.get('/api/spending/budget-vs-actual', (req, res) => {
+  res.json({
+    data: spendingData.budget_vs_actual,
+    summary: {
+      total_overspend_millions: spendingData.budget_vs_actual.reduce((sum, y) => sum + y.overspend, 0),
+      worst_year: '2022-23',
+      worst_overspend_pct: 70.6
+    }
+  });
+});
 // ============================================================================
 // API ENDPOINTS - CONTRACTORS (V12)
 // ============================================================================
@@ -3607,6 +3658,17 @@ app.get('/api/uasc/summary', (req, res) => {
     top_nationalities: uascData.by_nationality.slice(0, 5)
   });
 });
+app.get('/api/age-disputes', (req, res) => {
+  res.json(ageDisputesData);
+});
+
+app.get('/api/age-disputes/summary', (req, res) => {
+  res.json({
+    total_disputes: ageDisputesData.current_year.total_disputes,
+    resolved_as_adult_pct: ageDisputesData.current_year.adult_rate_pct,
+    pending: ageDisputesData.current_year.pending
+  });
+});
 
 // ============================================================================
 // API ENDPOINTS - BACKLOG (V13)
@@ -3693,7 +3755,43 @@ app.get('/api/analysis/investigations/:id', (req, res) => {
   }
   res.json(investigation);
 });
+app.get('/api/analysis/dashboard', (req, res) => {
+  res.json({
+    total_investigations: investigationsData.length,
+    by_status: {
+      ongoing: investigationsData.filter(i => i.status === 'ongoing').length,
+      completed: investigationsData.filter(i => i.status === 'completed').length
+    },
+    total_amount_involved: investigationsData.reduce((sum, i) => 
+      sum + i.entities.reduce((s, e) => s + (e.amount_involved || 0), 0), 0),
+    recent: investigationsData.slice(0, 5).map(i => ({ id: i.id, title: i.title, status: i.status }))
+  });
+});
 
+app.get('/api/analysis/entities', (req, res) => {
+  const allEntities: any[] = [];
+  for (const inv of investigationsData) {
+    for (const entity of inv.entities) {
+      allEntities.push({ ...entity, investigation_id: inv.id, investigation_title: inv.title });
+    }
+  }
+  res.json({ total: allEntities.length, entities: allEntities });
+});
+
+app.get('/api/analysis/flagged', (req, res) => {
+  const flagged = investigationsData.filter(i => i.status === 'ongoing');
+  res.json({ count: flagged.length, investigations: flagged });
+});
+
+app.get('/api/analysis/money-flows', (req, res) => {
+  const allFlows: any[] = [];
+  for (const inv of investigationsData) {
+    for (const flow of inv.money_flows) {
+      allFlows.push({ ...flow, investigation_id: inv.id });
+    }
+  }
+  res.json({ total_flows: allFlows.length, flows: allFlows });
+});
 // ============================================================================
 // API ENDPOINTS - COMMUNITY INTEL
 // ============================================================================

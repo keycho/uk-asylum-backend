@@ -4,9 +4,25 @@ import pg from 'pg';
 import axios from 'axios';
 import * as cheerio from 'cheerio';
 import Parser from 'rss-parser';
+import crypto from 'crypto';
 
 const { Pool } = pg;
-const rssParser = new Parser();
+
+// Configure RSS parser with custom headers to avoid caching
+const rssParser = new Parser({
+  headers: {
+    'User-Agent': 'UK-Asylum-Tracker/1.0',
+    'Cache-Control': 'no-cache',
+    'Pragma': 'no-cache'
+  },
+  timeout: 10000
+});
+
+// Generate a short unique hash for article IDs
+function generateArticleId(source: string, url: string): string {
+  const hash = crypto.createHash('md5').update(url).digest('hex').slice(0, 12);
+  return `${source}-${hash}`;
+}
 
 const app = express();
 app.use(cors());
@@ -27,7 +43,9 @@ const CONFIG = {
   HANSARD_RSS: 'https://hansard.parliament.uk/rss/Commons.rss',
   WHATDOTHEYKNOW_ASYLUM: 'https://www.whatdotheyknow.com/feed/search/asylum%20seeker',
   GUARDIAN_IMMIGRATION: 'https://www.theguardian.com/uk/immigration/rss',
-  BBC_NEWS: 'https://feeds.bbci.co.uk/news/uk/rss.xml',
+  BBC_NEWS_UK: 'https://feeds.bbci.co.uk/news/uk/rss.xml',
+  BBC_NEWS_POLITICS: 'https://feeds.bbci.co.uk/news/politics/rss.xml',
+  BBC_NEWS_ENGLAND: 'https://feeds.bbci.co.uk/news/england/rss.xml',
   TFL_JAMCAMS: 'https://api.tfl.gov.uk/Place/Type/JamCam',
   TRAFFIC_SCOTLAND: 'https://trafficscotland.org/rss/feeds/cameras.aspx',
   CACHE_DURATION_MS: 5 * 60 * 1000, // 5 minutes
@@ -1095,51 +1113,77 @@ async function aggregateNews(): Promise<NewsItem[]> {
   if (cached) return cached;
 
   const allNews: NewsItem[] = [];
+  const seenUrls = new Set<string>(); // Prevent duplicates
+
+  // Helper to add news item with deduplication
+  const addNewsItem = (item: any, source: string, minScore: number = 3) => {
+    if (!item.link || seenUrls.has(item.link)) return;
+
+    const { score, category } = scoreNewsItem(item.title || '', item.contentSnippet || item.content || '');
+    if (score >= minScore) {
+      seenUrls.add(item.link);
+      allNews.push({
+        id: generateArticleId(source.toLowerCase().replace(/\s+/g, '-'), item.link),
+        title: item.title || '',
+        summary: (item.contentSnippet || item.content || '').slice(0, 200),
+        url: item.link,
+        source,
+        published: item.pubDate || item.isoDate || new Date().toISOString(),
+        category,
+        relevance_score: score
+      });
+    }
+  };
 
   // Guardian Immigration RSS
   try {
+    console.log('Fetching Guardian RSS...');
     const feed = await rssParser.parseURL(CONFIG.GUARDIAN_IMMIGRATION);
-    for (const item of feed.items.slice(0, 20)) {
-      const { score, category } = scoreNewsItem(item.title || '', item.contentSnippet || '');
-      if (score >= 3) {
-        allNews.push({
-          id: `guardian-${Buffer.from(item.link || '').toString('base64').slice(0, 12)}`,
-          title: item.title || '',
-          summary: item.contentSnippet?.slice(0, 200) || '',
-          url: item.link || '',
-          source: 'The Guardian',
-          published: item.pubDate || new Date().toISOString(),
-          category,
-          relevance_score: score
-        });
-      }
+    console.log(`Guardian: fetched ${feed.items?.length || 0} items`);
+    for (const item of (feed.items || []).slice(0, 25)) {
+      addNewsItem(item, 'The Guardian');
     }
   } catch (e) {
-    console.log('Guardian RSS error:', e);
+    console.error('Guardian RSS error:', e);
   }
 
-  // BBC News RSS
+  // BBC News UK RSS
   try {
-    const feed = await rssParser.parseURL(CONFIG.BBC_NEWS);
-    for (const item of feed.items.slice(0, 30)) {
-      const { score, category } = scoreNewsItem(item.title || '', item.contentSnippet || '');
-      if (score >= 3) {
-        allNews.push({
-          id: `bbc-${Buffer.from(item.link || '').toString('base64').slice(0, 12)}`,
-          title: item.title || '',
-          summary: item.contentSnippet?.slice(0, 200) || '',
-          url: item.link || '',
-          source: 'BBC News',
-          published: item.pubDate || new Date().toISOString(),
-          category,
-          relevance_score: score
-        });
-      }
+    console.log('Fetching BBC UK RSS...');
+    const feed = await rssParser.parseURL(CONFIG.BBC_NEWS_UK);
+    console.log(`BBC UK: fetched ${feed.items?.length || 0} items`);
+    for (const item of (feed.items || []).slice(0, 20)) {
+      addNewsItem(item, 'BBC News');
     }
   } catch (e) {
-    console.log('BBC RSS error:', e);
+    console.error('BBC UK RSS error:', e);
   }
 
+  // BBC News Politics RSS (often has immigration policy news)
+  try {
+    console.log('Fetching BBC Politics RSS...');
+    const feed = await rssParser.parseURL(CONFIG.BBC_NEWS_POLITICS);
+    console.log(`BBC Politics: fetched ${feed.items?.length || 0} items`);
+    for (const item of (feed.items || []).slice(0, 15)) {
+      addNewsItem(item, 'BBC News');
+    }
+  } catch (e) {
+    console.error('BBC Politics RSS error:', e);
+  }
+
+  // BBC News England RSS (regional coverage)
+  try {
+    console.log('Fetching BBC England RSS...');
+    const feed = await rssParser.parseURL(CONFIG.BBC_NEWS_ENGLAND);
+    console.log(`BBC England: fetched ${feed.items?.length || 0} items`);
+    for (const item of (feed.items || []).slice(0, 15)) {
+      addNewsItem(item, 'BBC News');
+    }
+  } catch (e) {
+    console.error('BBC England RSS error:', e);
+  }
+
+  // Sort by relevance score first, then by date
   allNews.sort((a, b) => {
     const scoreDiff = b.relevance_score - a.relevance_score;
     if (Math.abs(scoreDiff) > 2) return scoreDiff;
@@ -1147,6 +1191,8 @@ async function aggregateNews(): Promise<NewsItem[]> {
   });
 
   const result = allNews.slice(0, 50);
+  console.log(`News aggregation complete: ${result.length} articles (Guardian: ${result.filter(n => n.source === 'The Guardian').length}, BBC: ${result.filter(n => n.source === 'BBC News').length})`);
+
   setCache('news_feed', result);
   return result;
 }

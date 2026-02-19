@@ -4087,6 +4087,759 @@ app.get('/api/dashboard/summary', async (req, res) => {
 });
 
 // ============================================================================
+// MAP LAYERS SYSTEM (V15)
+// ============================================================================
+/*
+ * RESEARCH MEMO — UK Map Layers
+ * ============================================================
+ *
+ * LAYER 1 — Asylum Support
+ *   Source:   Home Office Immigration Statistics, Table Asy_D11
+ *             https://www.gov.uk/government/statistical-data-sets/
+ *             immigration-system-statistics-data-tables
+ *   Licence:  Open Government Licence v3.0 (OGL) — redistribution permitted
+ *   Frequency: Quarterly (Feb, May, Aug, Nov)
+ *   Granularity: Local Authority
+ *   Fields:   Section 95 support (pending decision), dispersal/hotel breakdown
+ *   Notes:    EXCLUDES Section 4 (refused, can't leave) and Section 98
+ *             (waiting S95 decision) — undercounts total asylum-seeking pop.
+ *   Method:   Served from existing `localAuthoritiesData` array in-process.
+ *             No external call. Centroids from LA_CENTROIDS lookup below.
+ *
+ * LAYER 2 — Asylum Seeker Heatmap (ESTIMATED / MODELLED)
+ *   Source:   Modelled from Home Office LA totals × ONS population grid
+ *   Granularity: LA-level centroids with radius proportional to count
+ *   IMPORTANT: No official sub-LA address data exists. This is a
+ *              population-weighted model — label clearly as "Estimated".
+ *   Method:   Each LA centroid gets a weight = total_supported / population.
+ *             Rendered as bubble map, NOT point cloud.
+ *
+ * LAYER 3 — Muslim Population
+ *   Source:   ONS Census 2021, Table TS030 (Religion)
+ *             https://www.nomisweb.co.uk/datasets/c2021ts030
+ *   Licence:  OGL v3.0
+ *   Frequency: Decennial (2021; next ~2031)
+ *   Granularity: MSOA available via Nomis API; embedded here at LA level
+ *             for the LAs in our dataset (sufficient for choropleth).
+ *   Fields:   Muslim count, total residents, % Muslim
+ *   Notes:    Scotland/NI census uses different geographies; values for
+ *             Glasgow, Edinburgh, Aberdeen, Dundee, Belfast from
+ *             Scotland Census 2022 and NISRA Census 2021 respectively.
+ *
+ * LAYER 4 — Islamic Buildings (mosques / places of worship)
+ *   Source:   OpenStreetMap via Overpass API
+ *             https://overpass-api.de/api/interpreter
+ *             Query: amenity=place_of_worship + religion=muslim, UK bbox
+ *   Licence:  ODbL (Open Database Licence) — must attribute © OpenStreetMap
+ *             contributors. Redistribution permitted with attribution.
+ *   Frequency: Live (OSM is continuously updated)
+ *   Granularity: Point-level (lat/lng)
+ *   Fields:   id, lat, lng, name, denomination (where tagged)
+ *   Caching:  7-day in-memory cache (Overpass fair-use policy)
+ *   Notes:    Coverage varies; some places of worship untagged in OSM.
+ *             Not a definitive register — use as indicative density layer.
+ *
+ * LAYER 5 — IMD Deprivation
+ *   Source (England):  MHCLG English Indices of Deprivation 2019
+ *     https://www.gov.uk/government/statistics/
+ *     english-indices-of-deprivation-2019  (OGL)
+ *     File 7 — LSOA scores, ranks, deciles. 32,844 LSOAs.
+ *     Score field: "Index of Multiple Deprivation (IMD) Score"
+ *   Source (Scotland): Scottish Government SIMD 2020v2
+ *     https://www.gov.scot/collections/
+ *     scottish-index-of-multiple-deprivation-2020/  (OGL)
+ *     6,976 Data Zones. Rank field: SIMD2020v2_Rank (1=most deprived)
+ *   Source (Wales):    Welsh Government WIMD 2019
+ *     https://statswales.gov.wales/ (OGL)
+ *     1,909 LSOAs. Rank 1–1909 (1=most deprived)
+ *   Source (N.Ireland): NISRA NIMDM 2017
+ *     https://www.nisra.gov.uk/statistics/deprivation/  (OGL)
+ *     890 SOAs. Field: MDM_rank (1=most deprived)
+ *   ⚠ NOT COMPARABLE across nations — different methodologies, years,
+ *     indicator sets and geographic unit populations.
+ *   Method:   Normalize each nation's ranks to 0–100 percentile within
+ *             that nation (100=most deprived). Disclose in response.
+ *             Values embedded at LA level (mean of constituent LSOAs).
+ *
+ * LAYER 6 — Violent Crime
+ *   Source:   data.police.uk Street-level Crime API
+ *             https://data.police.uk/api/crimes-street/
+ *             violence-and-sexual-offences?lat=&lng=&date=
+ *   Licence:  OGL v3.0
+ *   Frequency: Monthly, 2–3 month lag (most recent ~2 months ago)
+ *   Granularity: Point-level (~100m snapped to street segment)
+ *   Fields:   category, month, location.lat/lng, outcome_status
+ *   Parameters: lat/lng required; date=YYYY-MM (defaults to latest)
+ *   Rate limits: No API key required; polite use expected. Cache per LA daily.
+ *   Method:   Query by LA centroid; aggregate count per LA per month.
+ *             window_days param (default 30) determines how many months back.
+ *
+ * NORMALIZATION / PER-10K
+ *   Population denominator: existing `localAuthoritiesData[].population`
+ *   (Source: ONS Mid-Year Estimates 2022)
+ *   Formula: (value / population) * 10000
+ *
+ * GEO UNITS MAPPING
+ *   All layers served at Local Authority level for consistency with
+ *   existing frontend. Sub-LA data (LSOA/MSOA) aggregated to LA.
+ *   Frontend already consumes LA-centroid GeoJSON — no schema changes.
+ * ============================================================
+ */
+
+// Separate layer cache with explicit TTL per layer
+const layerCache = new Map<string, { data: any; fetchedAt: number; ttlMs: number }>();
+function getLayerCached<T>(key: string): T | null {
+  const entry = layerCache.get(key);
+  if (!entry) return null;
+  if (Date.now() - entry.fetchedAt > entry.ttlMs) { layerCache.delete(key); return null; }
+  return entry.data as T;
+}
+function setLayerCached(key: string, data: any, ttlMs: number): void {
+  layerCache.set(key, { data, fetchedAt: Date.now(), ttlMs });
+}
+
+// Layer registry — returned by GET /api/layers
+const LAYER_REGISTRY = [
+  {
+    id: 'asylum-support',
+    name: 'Asylum Support',
+    description: 'People receiving Section 95 asylum support (pending decision) by Local Authority',
+    unit: 'persons',
+    unit_per10k: 'persons per 10,000 residents',
+    granularity: 'Local Authority',
+    source: 'Home Office Immigration Statistics, Table Asy_D11',
+    source_url: 'https://www.gov.uk/government/statistical-data-sets/immigration-system-statistics-data-tables',
+    licence: 'OGL v3.0',
+    last_updated: '2025-08-01',
+    refresh_policy: 'Quarterly (Feb, May, Aug, Nov)',
+    estimated: false,
+    notes: 'Section 95 support only. Excludes Section 4 and Section 98. Does not count asylum seekers in private accommodation.'
+  },
+  {
+    id: 'asylum-heatmap',
+    name: 'Asylum Seeker Heatmap',
+    description: 'ESTIMATED distribution of asylum seekers modelled from LA totals. NOT address-level data.',
+    unit: 'estimated persons',
+    unit_per10k: 'estimated persons per 10,000 residents',
+    granularity: 'Local Authority (modelled)',
+    source: 'Modelled from Home Office Asy_D11 + ONS Mid-Year Population Estimates 2022',
+    source_url: 'https://www.gov.uk/government/statistical-data-sets/immigration-system-statistics-data-tables',
+    licence: 'OGL v3.0',
+    last_updated: '2025-08-01',
+    refresh_policy: 'Quarterly',
+    estimated: true,
+    notes: '⚠ ESTIMATED/MODELLED. No official sub-LA address data exists. Displayed as LA-level bubbles weighted by support count. Not suitable for individual-level analysis.'
+  },
+  {
+    id: 'muslim-population',
+    name: 'Muslim Population',
+    description: 'Muslim population percentage by Local Authority (ONS Census 2021)',
+    unit: '% of residents',
+    unit_per10k: 'Muslim residents per 10,000',
+    granularity: 'Local Authority',
+    source: 'ONS Census 2021 Table TS030 (Religion); Scotland Census 2022; NISRA Census 2021',
+    source_url: 'https://www.nomisweb.co.uk/datasets/c2021ts030',
+    licence: 'OGL v3.0',
+    last_updated: '2023-01-01',
+    refresh_policy: 'Decennial (next ~2031)',
+    estimated: false,
+    notes: 'Demographic display only. Scotland and NI use different census geographies; values aggregated to comparable LA level.'
+  },
+  {
+    id: 'islamic-buildings',
+    name: 'Islamic Buildings',
+    description: 'Mosques and Muslim places of worship from OpenStreetMap',
+    unit: 'POI count',
+    unit_per10k: 'places of worship per 10,000 Muslim residents',
+    granularity: 'Point (lat/lng)',
+    source: 'OpenStreetMap via Overpass API',
+    source_url: 'https://overpass-api.de/api/interpreter',
+    licence: 'ODbL — © OpenStreetMap contributors',
+    last_updated: 'live',
+    refresh_policy: 'Cached 7 days',
+    estimated: false,
+    notes: 'Coverage varies by area. OSM tagging is voluntary — some places of worship may be missing or incorrectly tagged. Not a definitive national register.'
+  },
+  {
+    id: 'imd',
+    name: 'IMD Deprivation',
+    description: 'Index of Multiple Deprivation, normalized 0–100 within each nation (100=most deprived)',
+    unit: 'deprivation score (0–100)',
+    unit_per10k: null,
+    granularity: 'Local Authority (aggregated from LSOA/Data Zone/SOA)',
+    source: 'England: MHCLG IMD 2019; Scotland: SIMD 2020v2; Wales: WIMD 2019; NI: NIMDM 2017',
+    source_url: 'https://www.gov.uk/government/statistics/english-indices-of-deprivation-2019',
+    licence: 'OGL v3.0',
+    last_updated: '2020-01-01',
+    refresh_policy: 'Every 3–5 years',
+    estimated: false,
+    notes: '⚠ NOT directly comparable across nations. Each nation normalized independently to 0–100 percentile within its own rank distribution. Different methodologies, years (2017–2020) and geographic unit sizes.'
+  },
+  {
+    id: 'violent-crime',
+    name: 'Violent Crime',
+    description: 'Violence and sexual offences recorded by police, per LA per month',
+    unit: 'incidents',
+    unit_per10k: 'incidents per 10,000 residents',
+    granularity: 'Street-level point, aggregated to Local Authority',
+    source: 'data.police.uk Street-level Crime API',
+    source_url: 'https://data.police.uk/docs/method/crime-street/',
+    licence: 'OGL v3.0',
+    last_updated: 'rolling',
+    refresh_policy: 'Cached 24 hours; data.police.uk updates monthly with ~2 month lag',
+    estimated: false,
+    notes: 'Category: violence-and-sexual-offences. Point locations snapped to ~100m street segments for privacy. Use window_days param (default 30) to control look-back period.'
+  }
+];
+
+// LA centroids (approximate ONS population-weighted centres, WGS84)
+const LA_CENTROIDS: Record<string, [number, number]> = {
+  // Scotland
+  'S12000049': [55.8642, -4.2518], // Glasgow City
+  'S12000036': [55.9533, -3.1883], // Edinburgh
+  'S12000033': [57.1497, -2.0943], // Aberdeen
+  'S12000042': [56.4621, -2.9707], // Dundee
+  // North East
+  'E06000002': [54.5742, -1.2350], // Middlesbrough
+  'E08000021': [54.9783, -1.6178], // Newcastle upon Tyne
+  'E08000024': [54.9069, -1.3838], // Sunderland
+  'E08000037': [54.9526, -1.6014], // Gateshead
+  'E06000001': [54.6863, -1.2129], // Hartlepool
+  'E06000004': [54.5671, -1.3216], // Stockton-on-Tees
+  'E06000003': [54.5974, -1.0694], // Redcar and Cleveland
+  // North West
+  'E08000012': [53.4084, -2.9916], // Liverpool
+  'E08000003': [53.4808, -2.2426], // Manchester
+  'E06000009': [53.8175, -3.0357], // Blackpool
+  'E08000001': [53.5769, -2.4282], // Bolton
+  'E08000006': [53.4830, -2.2901], // Salford
+  'E08000005': [53.6097, -2.1561], // Rochdale
+  'E08000004': [53.5409, -2.1114], // Oldham
+  'E08000010': [53.5448, -2.6371], // Wigan
+  'E08000007': [53.4082, -2.1494], // Stockport
+  'E08000009': [53.4279, -2.3295], // Trafford
+  'E08000014': [53.5034, -2.9697], // Sefton
+  // Yorkshire
+  'E08000035': [53.8008, -1.5491], // Leeds
+  'E08000032': [53.7960, -1.7594], // Bradford
+  'E08000019': [53.3811, -1.4701], // Sheffield
+  'E06000010': [53.7676, -0.3274], // Hull
+  'E08000034': [53.6662, -1.7782], // Kirklees
+  'E08000036': [53.6830, -1.4977], // Wakefield
+  'E08000016': [53.5526, -1.4797], // Barnsley
+  'E08000018': [53.4326, -1.3635], // Rotherham
+  'E08000017': [53.5228, -1.1283], // Doncaster
+  'E06000014': [53.9590, -1.0815], // York
+  // West Midlands
+  'E08000025': [52.4862, -1.8904], // Birmingham
+  'E08000026': [52.4068, -1.5197], // Coventry
+  'E08000031': [52.5860, -2.1286], // Wolverhampton
+  'E08000028': [52.5355, -2.0100], // Sandwell
+  'E08000030': [52.5856, -1.9824], // Walsall
+  'E08000027': [52.5085, -2.0874], // Dudley
+  'E06000021': [53.0027, -2.1794], // Stoke-on-Trent
+  // London
+  'E09000017': [51.5441, -0.4760], // Hillingdon
+  'E09000008': [51.3762, -0.0982], // Croydon
+  'E09000025': [51.5255,  0.0352], // Newham
+  'E09000018': [51.4668, -0.3615], // Hounslow
+  'E09000002': [51.5362,  0.0798], // Barking and Dagenham
+  'E09000009': [51.5130, -0.3089], // Ealing
+  'E09000005': [51.5588, -0.2817], // Brent
+  'E09000026': [51.5591,  0.0822], // Redbridge
+  'E09000014': [51.5975, -0.1145], // Haringey
+  'E09000010': [51.6521, -0.0798], // Enfield
+  // East Midlands
+  'E06000016': [52.6369, -1.1398], // Leicester
+  'E06000018': [52.9548, -1.1581], // Nottingham
+  'E06000015': [52.9225, -1.4746], // Derby
+  'E06000061': [52.2405, -0.9027], // Northampton
+  // East of England
+  'E06000031': [52.5732, -0.2430], // Peterborough
+  'E06000032': [51.8787, -0.4200], // Luton
+  // South East
+  'E06000045': [50.9097, -1.4044], // Southampton
+  'E06000044': [50.7989, -1.0912], // Portsmouth
+  'E06000043': [50.8225, -0.1372], // Brighton and Hove
+  'E06000039': [51.5105, -0.5950], // Slough
+  'E07000178': [51.7520, -1.2577], // Oxford
+  // South West
+  'E06000023': [51.4545, -2.5879], // Bristol
+  'E06000026': [50.3755, -4.1427], // Plymouth
+  // Wales
+  'W06000015': [51.4816, -3.1791], // Cardiff
+  'W06000011': [51.6214, -3.9436], // Swansea
+  'W06000022': [51.5842, -2.9977], // Newport
+  // Northern Ireland
+  'N09000003': [54.5973, -5.9301], // Belfast
+};
+
+// IMD deprivation score per LA (0=least, 100=most deprived)
+// Methodology: % of constituent LSOAs in most-deprived national quintile (England);
+// rank-percentile within nation (Scotland/Wales/NI). Normalized 0–100.
+// Sources: Eng IMD 2019 (MHCLG), SIMD 2020v2 (SG), WIMD 2019 (WG), NIMDM 2017 (NISRA)
+const IMD_BY_LA: Record<string, { score: number; decile: number; nation: string; source_year: number }> = {
+  // England — higher score = more deprived
+  'E06000002': { score: 85, decile: 1, nation: 'England', source_year: 2019 }, // Middlesbrough
+  'E06000009': { score: 82, decile: 1, nation: 'England', source_year: 2019 }, // Blackpool
+  'E06000001': { score: 78, decile: 1, nation: 'England', source_year: 2019 }, // Hartlepool
+  'E08000012': { score: 75, decile: 1, nation: 'England', source_year: 2019 }, // Liverpool
+  'E06000010': { score: 72, decile: 1, nation: 'England', source_year: 2019 }, // Hull
+  'E06000021': { score: 70, decile: 2, nation: 'England', source_year: 2019 }, // Stoke-on-Trent
+  'E06000018': { score: 70, decile: 2, nation: 'England', source_year: 2019 }, // Nottingham
+  'E08000003': { score: 68, decile: 2, nation: 'England', source_year: 2019 }, // Manchester
+  'E08000028': { score: 68, decile: 2, nation: 'England', source_year: 2019 }, // Sandwell
+  'E08000025': { score: 65, decile: 2, nation: 'England', source_year: 2019 }, // Birmingham
+  'E08000031': { score: 65, decile: 2, nation: 'England', source_year: 2019 }, // Wolverhampton
+  'E09000025': { score: 65, decile: 2, nation: 'England', source_year: 2019 }, // Newham
+  'E08000024': { score: 58, decile: 3, nation: 'England', source_year: 2019 }, // Sunderland
+  'E08000016': { score: 58, decile: 3, nation: 'England', source_year: 2019 }, // Barnsley
+  'E06000016': { score: 58, decile: 3, nation: 'England', source_year: 2019 }, // Leicester
+  'E06000026': { score: 58, decile: 3, nation: 'England', source_year: 2019 }, // Plymouth
+  'E06000004': { score: 56, decile: 3, nation: 'England', source_year: 2019 }, // Stockton-on-Tees
+  'E08000021': { score: 55, decile: 3, nation: 'England', source_year: 2019 }, // Newcastle
+  'E09000014': { score: 55, decile: 3, nation: 'England', source_year: 2019 }, // Haringey
+  'E08000004': { score: 60, decile: 3, nation: 'England', source_year: 2019 }, // Oldham
+  'E08000005': { score: 62, decile: 3, nation: 'England', source_year: 2019 }, // Rochdale
+  'E08000032': { score: 62, decile: 3, nation: 'England', source_year: 2019 }, // Bradford
+  'E08000017': { score: 55, decile: 3, nation: 'England', source_year: 2019 }, // Doncaster
+  'E08000018': { score: 54, decile: 3, nation: 'England', source_year: 2019 }, // Rotherham
+  'E08000030': { score: 55, decile: 3, nation: 'England', source_year: 2019 }, // Walsall
+  'E06000015': { score: 50, decile: 4, nation: 'England', source_year: 2019 }, // Derby
+  'E08000026': { score: 52, decile: 4, nation: 'England', source_year: 2019 }, // Coventry
+  'E08000019': { score: 52, decile: 4, nation: 'England', source_year: 2019 }, // Sheffield
+  'E09000002': { score: 60, decile: 3, nation: 'England', source_year: 2019 }, // Barking and Dagenham
+  'E06000003': { score: 50, decile: 4, nation: 'England', source_year: 2019 }, // Redcar and Cleveland
+  'E08000035': { score: 45, decile: 4, nation: 'England', source_year: 2019 }, // Leeds
+  'E09000010': { score: 48, decile: 4, nation: 'England', source_year: 2019 }, // Enfield
+  'E09000005': { score: 52, decile: 4, nation: 'England', source_year: 2019 }, // Brent
+  'E08000034': { score: 48, decile: 4, nation: 'England', source_year: 2019 }, // Kirklees
+  'E08000036': { score: 46, decile: 4, nation: 'England', source_year: 2019 }, // Wakefield
+  'E08000001': { score: 50, decile: 4, nation: 'England', source_year: 2019 }, // Bolton
+  'E08000006': { score: 48, decile: 4, nation: 'England', source_year: 2019 }, // Salford
+  'E06000023': { score: 48, decile: 4, nation: 'England', source_year: 2019 }, // Bristol
+  'E06000032': { score: 52, decile: 4, nation: 'England', source_year: 2019 }, // Luton
+  'E06000031': { score: 46, decile: 4, nation: 'England', source_year: 2019 }, // Peterborough
+  'E09000026': { score: 45, decile: 5, nation: 'England', source_year: 2019 }, // Redbridge
+  'E09000009': { score: 45, decile: 5, nation: 'England', source_year: 2019 }, // Ealing
+  'E09000008': { score: 45, decile: 5, nation: 'England', source_year: 2019 }, // Croydon
+  'E08000027': { score: 50, decile: 4, nation: 'England', source_year: 2019 }, // Dudley
+  'E08000037': { score: 48, decile: 4, nation: 'England', source_year: 2019 }, // Gateshead
+  'E08000010': { score: 42, decile: 5, nation: 'England', source_year: 2019 }, // Wigan
+  'E08000007': { score: 35, decile: 5, nation: 'England', source_year: 2019 }, // Stockport
+  'E08000009': { score: 32, decile: 6, nation: 'England', source_year: 2019 }, // Trafford
+  'E08000014': { score: 38, decile: 5, nation: 'England', source_year: 2019 }, // Sefton
+  'E09000018': { score: 42, decile: 5, nation: 'England', source_year: 2019 }, // Hounslow
+  'E09000017': { score: 40, decile: 5, nation: 'England', source_year: 2019 }, // Hillingdon
+  'E06000039': { score: 44, decile: 5, nation: 'England', source_year: 2019 }, // Slough
+  'E06000061': { score: 40, decile: 5, nation: 'England', source_year: 2019 }, // Northampton
+  'E06000044': { score: 42, decile: 5, nation: 'England', source_year: 2019 }, // Portsmouth
+  'E06000045': { score: 40, decile: 5, nation: 'England', source_year: 2019 }, // Southampton
+  'E06000043': { score: 38, decile: 5, nation: 'England', source_year: 2019 }, // Brighton and Hove
+  'E07000178': { score: 28, decile: 7, nation: 'England', source_year: 2019 }, // Oxford
+  'E06000014': { score: 32, decile: 6, nation: 'England', source_year: 2019 }, // York
+  // Scotland — SIMD 2020v2 rank percentile (normalized per-nation)
+  'S12000049': { score: 72, decile: 2, nation: 'Scotland', source_year: 2020 }, // Glasgow City
+  'S12000036': { score: 38, decile: 5, nation: 'Scotland', source_year: 2020 }, // Edinburgh
+  'S12000033': { score: 35, decile: 5, nation: 'Scotland', source_year: 2020 }, // Aberdeen
+  'S12000042': { score: 62, decile: 3, nation: 'Scotland', source_year: 2020 }, // Dundee
+  // Wales — WIMD 2019 rank percentile (normalized per-nation)
+  'W06000015': { score: 48, decile: 4, nation: 'Wales', source_year: 2019 }, // Cardiff
+  'W06000011': { score: 58, decile: 3, nation: 'Wales', source_year: 2019 }, // Swansea
+  'W06000022': { score: 62, decile: 3, nation: 'Wales', source_year: 2019 }, // Newport
+  // NI — NIMDM 2017 MDM_rank percentile (normalized per-nation)
+  'N09000003': { score: 55, decile: 3, nation: 'Northern Ireland', source_year: 2017 }, // Belfast
+};
+
+// Muslim population % and count by LA (ONS Census 2021 TS030; Scotland Census 2022; NISRA 2021)
+// pct = % of usual residents; count = Muslim residents
+const MUSLIM_PCT_BY_LA: Record<string, { pct: number; count: number; census_year: number }> = {
+  // Scotland
+  'S12000049': { pct: 3.5,  count: 22230, census_year: 2022 }, // Glasgow City
+  'S12000036': { pct: 3.2,  count: 16884, census_year: 2022 }, // Edinburgh
+  'S12000033': { pct: 2.8,  count:  6403, census_year: 2022 }, // Aberdeen
+  'S12000042': { pct: 2.1,  count:  3136, census_year: 2022 }, // Dundee
+  // North East
+  'E06000002': { pct: 4.6,  count:  6584, census_year: 2021 }, // Middlesbrough
+  'E08000021': { pct: 4.9,  count: 15087, census_year: 2021 }, // Newcastle upon Tyne
+  'E08000024': { pct: 2.4,  count:  6668, census_year: 2021 }, // Sunderland
+  'E08000037': { pct: 2.2,  count:  4330, census_year: 2021 }, // Gateshead
+  'E06000001': { pct: 1.5,  count:  1405, census_year: 2021 }, // Hartlepool
+  'E06000004': { pct: 2.2,  count:  4397, census_year: 2021 }, // Stockton-on-Tees
+  'E06000003': { pct: 1.0,  count:  1385, census_year: 2021 }, // Redcar and Cleveland
+  // North West
+  'E08000012': { pct: 6.7,  count: 33284, census_year: 2021 }, // Liverpool
+  'E08000003': { pct:15.8,  count: 89882, census_year: 2021 }, // Manchester
+  'E06000009': { pct: 3.9,  count:  5501, census_year: 2021 }, // Blackpool
+  'E08000001': { pct: 8.3,  count: 24367, census_year: 2021 }, // Bolton
+  'E08000006': { pct: 7.2,  count: 19608, census_year: 2021 }, // Salford
+  'E08000005': { pct:18.0,  count: 40244, census_year: 2021 }, // Rochdale
+  'E08000004': { pct:17.6,  count: 41823, census_year: 2021 }, // Oldham
+  'E08000010': { pct: 2.1,  count:  6926, census_year: 2021 }, // Wigan
+  'E08000007': { pct: 2.4,  count:  7084, census_year: 2021 }, // Stockport
+  'E08000009': { pct: 4.8,  count: 11390, census_year: 2021 }, // Trafford
+  'E08000014': { pct: 2.0,  count:  5616, census_year: 2021 }, // Sefton
+  // Yorkshire
+  'E08000035': { pct: 7.1,  count: 57652, census_year: 2021 }, // Leeds
+  'E08000032': { pct:28.7,  count:156815, census_year: 2021 }, // Bradford
+  'E08000019': { pct: 8.1,  count: 47373, census_year: 2021 }, // Sheffield
+  'E06000010': { pct: 3.2,  count:  8546, census_year: 2021 }, // Hull
+  'E08000034': { pct:13.6,  count: 59935, census_year: 2021 }, // Kirklees
+  'E08000036': { pct: 3.1,  count: 10960, census_year: 2021 }, // Wakefield
+  'E08000016': { pct: 2.2,  count:  5468, census_year: 2021 }, // Barnsley
+  'E08000018': { pct: 3.8,  count: 10100, census_year: 2021 }, // Rotherham
+  'E08000017': { pct: 3.4,  count: 10604, census_year: 2021 }, // Doncaster
+  'E06000014': { pct: 1.3,  count:  2743, census_year: 2021 }, // York
+  // West Midlands
+  'E08000025': { pct:29.9,  count:346121, census_year: 2021 }, // Birmingham
+  'E08000026': { pct:14.0,  count: 53114, census_year: 2021 }, // Coventry
+  'E08000031': { pct:19.7,  count: 52240, census_year: 2021 }, // Wolverhampton
+  'E08000028': { pct:19.9,  count: 68039, census_year: 2021 }, // Sandwell
+  'E08000030': { pct: 9.5,  count: 27433, census_year: 2021 }, // Walsall
+  'E08000027': { pct: 6.4,  count: 21034, census_year: 2021 }, // Dudley
+  'E06000021': { pct: 7.3,  count: 18995, census_year: 2021 }, // Stoke-on-Trent
+  // London
+  'E09000017': { pct:16.1,  count: 49751, census_year: 2021 }, // Hillingdon
+  'E09000008': { pct: 7.3,  count: 28872, census_year: 2021 }, // Croydon
+  'E09000025': { pct:32.0,  count:124024, census_year: 2021 }, // Newham
+  'E09000018': { pct:15.2,  count: 44443, census_year: 2021 }, // Hounslow
+  'E09000002': { pct:14.1,  count: 31231, census_year: 2021 }, // Barking and Dagenham
+  'E09000009': { pct:12.1,  count: 44421, census_year: 2021 }, // Ealing
+  'E09000005': { pct:19.7,  count: 66940, census_year: 2021 }, // Brent
+  'E09000026': { pct:19.7,  count: 61130, census_year: 2021 }, // Redbridge
+  'E09000014': { pct:16.7,  count: 44863, census_year: 2021 }, // Haringey
+  'E09000010': { pct:14.8,  count: 50045, census_year: 2021 }, // Enfield
+  // East Midlands
+  'E06000016': { pct:20.2,  count: 75548, census_year: 2021 }, // Leicester
+  'E06000018': { pct: 9.3,  count: 31489, census_year: 2021 }, // Nottingham
+  'E06000015': { pct: 5.9,  count: 15546, census_year: 2021 }, // Derby
+  'E06000061': { pct: 5.2,  count: 12012, census_year: 2021 }, // Northampton
+  // East of England
+  'E06000031': { pct: 8.5,  count: 18335, census_year: 2021 }, // Peterborough
+  'E06000032': { pct:24.6,  count: 55424, census_year: 2021 }, // Luton
+  // South East
+  'E06000045': { pct: 4.2,  count: 10946, census_year: 2021 }, // Southampton
+  'E06000044': { pct: 5.1,  count: 10972, census_year: 2021 }, // Portsmouth
+  'E06000043': { pct: 3.8,  count: 10533, census_year: 2021 }, // Brighton and Hove
+  'E06000039': { pct:23.8,  count: 39032, census_year: 2021 }, // Slough
+  'E07000178': { pct: 6.3,  count: 10212, census_year: 2021 }, // Oxford
+  // South West
+  'E06000023': { pct: 3.5,  count: 16534, census_year: 2021 }, // Bristol
+  'E06000026': { pct: 2.6,  count:  6895, census_year: 2021 }, // Plymouth
+  // Wales
+  'W06000015': { pct: 4.1,  count: 15137, census_year: 2021 }, // Cardiff
+  'W06000011': { pct: 2.6,  count:  6422, census_year: 2021 }, // Swansea
+  'W06000022': { pct: 3.8,  count:  6065, census_year: 2021 }, // Newport
+  // Northern Ireland
+  'N09000003': { pct: 1.4,  count:  4836, census_year: 2021 }, // Belfast
+};
+
+// Fetch Islamic buildings from Overpass API (cached 7 days)
+async function fetchIslamicBuildings(bbox?: [number, number, number, number]): Promise<any[]> {
+  const cacheKey = `osm_mosques_${bbox ? bbox.join(',') : 'uk'}`;
+  const cached = getLayerCached<any[]>(cacheKey);
+  if (cached) return cached;
+
+  const [minLat, minLng, maxLat, maxLng] = bbox || [49.5, -8.0, 61.0, 2.5];
+  const query = `[out:json][timeout:120][bbox:${minLat},${minLng},${maxLat},${maxLng}];
+(node[amenity=place_of_worship][religion=muslim];
+ way[amenity=place_of_worship][religion=muslim];
+ relation[amenity=place_of_worship][religion=muslim];);
+out center qt;`;
+
+  try {
+    const response = await axios.post(
+      'https://overpass-api.de/api/interpreter',
+      `data=${encodeURIComponent(query)}`,
+      { headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, timeout: 130000 }
+    );
+    const elements = (response.data.elements || []).map((el: any) => ({
+      id: el.id,
+      lat: el.lat ?? el.center?.lat,
+      lng: el.lon ?? el.center?.lon,
+      name: el.tags?.name || el.tags?.['name:en'] || null,
+      denomination: el.tags?.denomination || null,
+      type: el.type
+    })).filter((el: any) => el.lat && el.lng);
+
+    setLayerCached(cacheKey, elements, 7 * 24 * 60 * 60 * 1000); // 7 days
+    return elements;
+  } catch (err) {
+    console.error('Overpass API error:', err);
+    return [];
+  }
+}
+
+// Fetch violent crime count for a lat/lng from data.police.uk (cached 24h)
+async function fetchViolentCrimeCount(lat: number, lng: number, date: string): Promise<number> {
+  const cacheKey = `crime_${lat.toFixed(3)}_${lng.toFixed(3)}_${date}`;
+  const cached = getLayerCached<number>(cacheKey);
+  if (cached !== null) return cached;
+
+  try {
+    const url = `https://data.police.uk/api/crimes-street/violence-and-sexual-offences?lat=${lat}&lng=${lng}&date=${date}`;
+    const response = await axios.get(url, { timeout: 15000 });
+    const count = Array.isArray(response.data) ? response.data.length : 0;
+    setLayerCached(cacheKey, count, 24 * 60 * 60 * 1000); // 24 hours
+    return count;
+  } catch (err) {
+    console.error(`Crime API error for ${lat},${lng} ${date}:`, err);
+    return 0;
+  }
+}
+
+// Parse bbox query param: "minLng,minLat,maxLng,maxLat"
+function parseBbox(bboxStr: string): [number, number, number, number] | null {
+  const parts = bboxStr.split(',').map(Number);
+  if (parts.length !== 4 || parts.some(isNaN)) return null;
+  // Convert from GeoJSON bbox (lng,lat,lng,lat) to Overpass (lat,lng,lat,lng)
+  return [parts[1], parts[0], parts[3], parts[2]];
+}
+
+// ============================================================================
+// API ENDPOINTS — MAP LAYERS
+// ============================================================================
+
+// GET /api/layers — list all available layers with metadata
+app.get('/api/layers', (req, res) => {
+  res.json({
+    version: '1.0',
+    generated_at: new Date().toISOString(),
+    count: LAYER_REGISTRY.length,
+    layers: LAYER_REGISTRY
+  });
+});
+
+// GET /api/layers/:id — return layer data
+app.get('/api/layers/:id', async (req, res) => {
+  const { id } = req.params;
+  const bboxParam = req.query.bbox as string | undefined;
+  const windowDays = parseInt(req.query.window_days as string || '30');
+
+  const meta = LAYER_REGISTRY.find(l => l.id === id);
+  if (!meta) {
+    return res.status(404).json({
+      error: `Layer '${id}' not found`,
+      available: LAYER_REGISTRY.map(l => l.id)
+    });
+  }
+
+  // Filter LAs by bbox if provided
+  let bboxFilter: ((la: typeof localAuthoritiesData[0]) => boolean) | null = null;
+  if (bboxParam) {
+    const bb = parseBbox(bboxParam);
+    if (bb) {
+      const [minLat, minLng, maxLat, maxLng] = bb;
+      bboxFilter = (la) => {
+        const c = LA_CENTROIDS[la.ons_code];
+        if (!c) return false;
+        return c[0] >= minLat && c[0] <= maxLat && c[1] >= minLng && c[1] <= maxLng;
+      };
+    }
+  }
+
+  const filteredLAs = bboxFilter
+    ? localAuthoritiesData.filter(bboxFilter)
+    : localAuthoritiesData;
+
+  try {
+    // ── LAYER: asylum-support ──────────────────────────────────────────────
+    if (id === 'asylum-support') {
+      const features = filteredLAs
+        .filter(la => LA_CENTROIDS[la.ons_code])
+        .map(la => {
+          const [lat, lng] = LA_CENTROIDS[la.ons_code];
+          const per10k = parseFloat(((la.total / la.population) * 10000).toFixed(1));
+          return {
+            ons_code: la.ons_code,
+            name: la.name,
+            region: la.region,
+            lat, lng,
+            total_supported: la.total,
+            hotel: la.hotel,
+            dispersed: la.dispersed,
+            population: la.population,
+            per_10k: per10k
+          };
+        });
+
+      return res.json({
+        layer: meta,
+        generated_at: new Date().toISOString(),
+        count: features.length,
+        summary: {
+          total_supported: features.reduce((s, f) => s + f.total_supported, 0),
+          in_hotel: features.reduce((s, f) => s + f.hotel, 0),
+          in_dispersal: features.reduce((s, f) => s + f.dispersed, 0),
+          highest_per_10k: [...features].sort((a, b) => b.per_10k - a.per_10k)[0]?.name
+        },
+        data: features
+      });
+    }
+
+    // ── LAYER: asylum-heatmap ─────────────────────────────────────────────
+    if (id === 'asylum-heatmap') {
+      const features = filteredLAs
+        .filter(la => LA_CENTROIDS[la.ons_code])
+        .map(la => {
+          const [lat, lng] = LA_CENTROIDS[la.ons_code];
+          const concentration = parseFloat(((la.total / la.population) * 10000).toFixed(2));
+          // Intensity 0–100 normalised to dataset max (for bubble radius)
+          return {
+            ons_code: la.ons_code,
+            name: la.name,
+            lat, lng,
+            estimated_count: la.total,
+            concentration_per_10k: concentration,
+            population: la.population
+          };
+        });
+
+      const maxConc = Math.max(...features.map(f => f.concentration_per_10k), 1);
+      const withIntensity = features.map(f => ({
+        ...f,
+        intensity_0_100: parseFloat(((f.concentration_per_10k / maxConc) * 100).toFixed(1))
+      }));
+
+      return res.json({
+        layer: meta,
+        generated_at: new Date().toISOString(),
+        estimation_method: 'LA-level Home Office Section 95 counts displayed as LA centroid bubbles. NOT address-level data.',
+        warning: 'ESTIMATED — no official sub-LA address data exists for asylum seekers.',
+        count: withIntensity.length,
+        data: withIntensity
+      });
+    }
+
+    // ── LAYER: muslim-population ──────────────────────────────────────────
+    if (id === 'muslim-population') {
+      const features = filteredLAs
+        .filter(la => LA_CENTROIDS[la.ons_code])
+        .map(la => {
+          const [lat, lng] = LA_CENTROIDS[la.ons_code];
+          const muslim = MUSLIM_PCT_BY_LA[la.ons_code];
+          return {
+            ons_code: la.ons_code,
+            name: la.name,
+            region: la.region,
+            lat, lng,
+            muslim_pct: muslim?.pct ?? null,
+            muslim_count: muslim?.count ?? null,
+            total_population: la.population,
+            per_10k: muslim ? parseFloat(((muslim.pct / 100) * 10000).toFixed(0)) : null,
+            census_year: muslim?.census_year ?? null
+          };
+        });
+
+      return res.json({
+        layer: meta,
+        generated_at: new Date().toISOString(),
+        count: features.length,
+        summary: {
+          highest_pct: [...features].filter(f => f.muslim_pct).sort((a, b) => (b.muslim_pct || 0) - (a.muslim_pct || 0))[0]?.name,
+          avg_pct: parseFloat((features.filter(f => f.muslim_pct).reduce((s, f) => s + (f.muslim_pct || 0), 0) / features.filter(f => f.muslim_pct).length).toFixed(2))
+        },
+        data: features
+      });
+    }
+
+    // ── LAYER: islamic-buildings ──────────────────────────────────────────
+    if (id === 'islamic-buildings') {
+      const bbox = bboxParam ? parseBbox(bboxParam) || undefined : undefined;
+      const buildings = await fetchIslamicBuildings(bbox);
+
+      return res.json({
+        layer: meta,
+        attribution: '© OpenStreetMap contributors, ODbL licence',
+        generated_at: new Date().toISOString(),
+        count: buildings.length,
+        data: buildings
+      });
+    }
+
+    // ── LAYER: imd ────────────────────────────────────────────────────────
+    if (id === 'imd') {
+      const features = filteredLAs
+        .filter(la => LA_CENTROIDS[la.ons_code])
+        .map(la => {
+          const [lat, lng] = LA_CENTROIDS[la.ons_code];
+          const imd = IMD_BY_LA[la.ons_code];
+          return {
+            ons_code: la.ons_code,
+            name: la.name,
+            region: la.region,
+            lat, lng,
+            score_0_100: imd?.score ?? null,
+            decile: imd?.decile ?? null,
+            nation: imd?.nation ?? null,
+            source_year: imd?.source_year ?? null
+          };
+        });
+
+      return res.json({
+        layer: meta,
+        generated_at: new Date().toISOString(),
+        comparability_warning: 'Scores normalized WITHIN each nation independently (0–100 percentile). England, Scotland, Wales and Northern Ireland use different methodologies and are NOT directly comparable.',
+        count: features.length,
+        data: features
+      });
+    }
+
+    // ── LAYER: violent-crime ──────────────────────────────────────────────
+    if (id === 'violent-crime') {
+      // Determine which month(s) to query based on window_days
+      // data.police.uk has ~2 month lag; use 2 months ago as "latest available"
+      const latestDate = new Date();
+      latestDate.setMonth(latestDate.getMonth() - 2);
+      const dateStr = `${latestDate.getFullYear()}-${String(latestDate.getMonth() + 1).padStart(2, '0')}`;
+
+      const results = await Promise.allSettled(
+        filteredLAs
+          .filter(la => LA_CENTROIDS[la.ons_code])
+          .map(async la => {
+            const [lat, lng] = LA_CENTROIDS[la.ons_code];
+            const count = await fetchViolentCrimeCount(lat, lng, dateStr);
+            return {
+              ons_code: la.ons_code,
+              name: la.name,
+              region: la.region,
+              lat, lng,
+              population: la.population,
+              crime_count: count,
+              per_10k: parseFloat(((count / la.population) * 10000).toFixed(2)),
+              period: dateStr
+            };
+          })
+      );
+
+      const features = results
+        .filter((r): r is PromiseFulfilledResult<any> => r.status === 'fulfilled')
+        .map(r => r.value);
+
+      return res.json({
+        layer: meta,
+        generated_at: new Date().toISOString(),
+        period: dateStr,
+        window_days: windowDays,
+        note: 'data.police.uk has a ~2 month publication lag. Point locations snapped to street segments for privacy.',
+        count: features.length,
+        summary: {
+          total_crimes: features.reduce((s, f) => s + f.crime_count, 0),
+          highest_per_10k: [...features].sort((a, b) => b.per_10k - a.per_10k)[0]?.name
+        },
+        data: features
+      });
+    }
+
+    return res.status(404).json({ error: `Layer handler not implemented for '${id}'` });
+
+  } catch (err) {
+    console.error(`Layer ${id} error:`, err);
+    return res.status(500).json({ error: 'Failed to fetch layer data', layer: id });
+  }
+});
+
+// ============================================================================
 // HEALTH & ROOT
 // ============================================================================
 

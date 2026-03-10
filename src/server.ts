@@ -4204,6 +4204,160 @@ app.get('/api/dashboard/summary', async (req, res) => {
 });
 
 // ============================================================================
+// API ENDPOINTS - LONDON CRIME (data.police.uk)
+// ============================================================================
+
+// Get crimes near a location
+app.get('/api/london/crime', async (req, res) => {
+  try {
+    const { lat, lng, date } = req.query;
+    
+    if (!lat || !lng) {
+      return res.status(400).json({ error: 'lat and lng required' });
+    }
+    
+    const cacheKey = `crime:${lat}:${lng}:${date || 'latest'}`;
+    const cached = getCached<any>(cacheKey);
+    if (cached) return res.json(cached);
+    
+    // data.police.uk API - crimes at location
+    const url = date 
+      ? `https://data.police.uk/api/crimes-street/all-crime?lat=${lat}&lng=${lng}&date=${date}`
+      : `https://data.police.uk/api/crimes-street/all-crime?lat=${lat}&lng=${lng}`;
+    
+    const response = await axios.get(url, { timeout: 10000 });
+    const crimes = response.data;
+    
+    // Group by category
+    const byCategory: Record<string, number> = {};
+    crimes.forEach((crime: any) => {
+      const cat = crime.category;
+      byCategory[cat] = (byCategory[cat] || 0) + 1;
+    });
+    
+    const result = {
+      total: crimes.length,
+      location: { lat: parseFloat(lat as string), lng: parseFloat(lng as string) },
+      by_category: Object.entries(byCategory)
+        .map(([category, count]) => ({ category, count }))
+        .sort((a, b) => b.count - a.count),
+      crimes: crimes.slice(0, 100) // Limit to 100 for response size
+    };
+    
+    setCache(cacheKey, result);
+    res.json(result);
+  } catch (error) {
+    console.error('Crime API error:', error);
+    res.status(500).json({ error: 'Failed to fetch crime data' });
+  }
+});
+
+// Get crime categories
+app.get('/api/london/crime/categories', async (req, res) => {
+  try {
+    const cached = getCached<any>('crime:categories');
+    if (cached) return res.json(cached);
+    
+    const response = await axios.get('https://data.police.uk/api/crime-categories', { timeout: 10000 });
+    setCache('crime:categories', response.data);
+    res.json(response.data);
+  } catch (error) {
+    console.error('Crime categories error:', error);
+    res.status(500).json({ error: 'Failed to fetch crime categories' });
+  }
+});
+
+// Get crimes for multiple points (for heatmap)
+app.get('/api/london/crime/area', async (req, res) => {
+  try {
+    const { bounds, date } = req.query;
+    
+    if (!bounds) {
+      return res.status(400).json({ error: 'bounds required (sw_lat,sw_lng,ne_lat,ne_lng)' });
+    }
+    
+    const [swLat, swLng, neLat, neLng] = (bounds as string).split(',').map(Number);
+    
+    // Create grid of points to sample
+    const points: Array<{lat: number, lng: number}> = [];
+    const latStep = (neLat - swLat) / 3;
+    const lngStep = (neLng - swLng) / 3;
+    
+    for (let i = 0; i <= 3; i++) {
+      for (let j = 0; j <= 3; j++) {
+        points.push({
+          lat: swLat + (latStep * i),
+          lng: swLng + (lngStep * j)
+        });
+      }
+    }
+    
+    // Fetch crime data for each point (with rate limiting)
+    const allCrimes: any[] = [];
+    const seen = new Set<string>();
+    
+    for (const point of points.slice(0, 5)) { // Limit to 5 API calls
+      try {
+        const url = date 
+          ? `https://data.police.uk/api/crimes-street/all-crime?lat=${point.lat}&lng=${point.lng}&date=${date}`
+          : `https://data.police.uk/api/crimes-street/all-crime?lat=${point.lat}&lng=${point.lng}`;
+        
+        const response = await axios.get(url, { timeout: 10000 });
+        
+        response.data.forEach((crime: any) => {
+          const key = `${crime.id || crime.persistent_id}`;
+          if (!seen.has(key)) {
+            seen.add(key);
+            allCrimes.push(crime);
+          }
+        });
+        
+        // Rate limit
+        await new Promise(r => setTimeout(r, 100));
+      } catch (e) {
+        console.error('Point fetch error:', e);
+      }
+    }
+    
+    // Group by category
+    const byCategory: Record<string, number> = {};
+    allCrimes.forEach((crime: any) => {
+      byCategory[crime.category] = (byCategory[crime.category] || 0) + 1;
+    });
+    
+    res.json({
+      total: allCrimes.length,
+      bounds: { sw: { lat: swLat, lng: swLng }, ne: { lat: neLat, lng: neLng } },
+      by_category: Object.entries(byCategory)
+        .map(([category, count]) => ({ category, count }))
+        .sort((a, b) => b.count - a.count),
+      geojson: {
+        type: 'FeatureCollection',
+        features: allCrimes.slice(0, 500).map(crime => ({
+          type: 'Feature',
+          geometry: {
+            type: 'Point',
+            coordinates: [
+              parseFloat(crime.location.longitude),
+              parseFloat(crime.location.latitude)
+            ]
+          },
+          properties: {
+            category: crime.category,
+            month: crime.month,
+            street: crime.location.street?.name || 'Unknown',
+            outcome: crime.outcome_status?.category || 'Under investigation'
+          }
+        }))
+      }
+    });
+  } catch (error) {
+    console.error('Crime area error:', error);
+    res.status(500).json({ error: 'Failed to fetch area crime data' });
+  }
+});
+
+// ============================================================================
 // HEALTH & ROOT
 // ============================================================================
 
